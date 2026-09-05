@@ -993,7 +993,7 @@ class _SettingsPageState extends State<SettingsPage>
   Future<void> _selectDocumentsPath() async {
     try {
       final selectedDirectory = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: '选择文档缓存目录（用于 EchoTrace 缓存）',
+        dialogTitle: '选择文档缓存目录（用于 LeadTrace 缓存）',
       );
       if (selectedDirectory == null) return;
       setState(() {
@@ -1383,7 +1383,7 @@ class _SettingsPageState extends State<SettingsPage>
             _buildInputSection(
               context,
               title: '文档缓存目录',
-              subtitle: '留空使用默认文档目录（用于 EchoTrace 缓存）',
+              subtitle: '留空使用默认文档目录（用于 LeadTrace 缓存）',
               child: Column(
                 children: [
                   TextFormField(

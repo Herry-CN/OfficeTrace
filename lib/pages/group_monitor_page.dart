@@ -11,6 +11,7 @@ import '../services/config_service.dart';
 import '../services/lead/ai_client_service.dart';
 import '../services/lead/lead_pipeline_service.dart';
 import '../services/lead/lead_store.dart';
+import '../services/lead/monitor_poll_delta.dart';
 import '../widgets/decrypt_required_gate.dart';
 
 /// 群监控：多选群、轮询、可选自动抓取
@@ -89,17 +90,21 @@ class _GroupMonitorPageState extends State<GroupMonitorPage> {
           offset: 0,
         );
         if (messages.isEmpty) continue;
-        final newest = messages
-            .map((m) => m.createTime)
-            .reduce((a, b) => a > b ? a : b);
-        final lastSeen = _lastSeenCreateTime[username] ?? 0;
-        if (newest <= lastSeen) {
-          _lastSeenCreateTime[username] = newest;
+        final delta = computeMonitorPollDelta(
+          lastSeenCreateTime: _lastSeenCreateTime[username],
+          messageCreateTimes: messages.map((m) => m.createTime).toList(),
+        );
+        if (delta.newestCreateTime == null) continue;
+        if (delta.baselineOnly) {
+          _lastSeenCreateTime[username] = delta.newestCreateTime!;
           continue;
         }
+        if (delta.freshCreateTimes.isEmpty) continue;
 
-        final fresh = messages.where((m) => m.createTime > lastSeen).toList();
-        _lastSeenCreateTime[username] = newest;
+        final fresh = messages
+            .where((m) => delta.freshCreateTimes.contains(m.createTime))
+            .toList();
+        _lastSeenCreateTime[username] = delta.newestCreateTime!;
 
         ChatSession? group;
         for (final g in _groups) {
