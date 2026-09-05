@@ -1,8 +1,19 @@
 // 配置服务：通过 SharedPreferences 持久化密钥、数据库路径、模式与调试开关
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'config_migration.dart';
+
 /// 配置服务 - 用于持久化存储应用配置
 class ConfigService {
+  static bool _migrationAttempted = false;
+
+  /// 启动时从旧 EchoTrace 配置迁移（幂等）
+  Future<int> migrateLegacyConfigIfNeeded() async {
+    if (_migrationAttempted) return 0;
+    _migrationAttempted = true;
+    return ConfigMigration.migrateFromEchoTraceIfNeeded();
+  }
+
   static const String _keyDecryptKey = 'decrypt_key';
   static const String _keyDatabasePath = 'database_path';
   static const String _keyIsConfigured = 'is_configured';

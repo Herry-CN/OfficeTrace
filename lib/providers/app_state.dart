@@ -448,6 +448,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // 产品名变更后 SharedPreferences 目录会重置，先尝试继承旧 EchoTrace 配置
+      final migrated = await configService.migrateLegacyConfigIfNeeded();
+      if (migrated > 0) {
+        AppPathService.clearCache();
+      }
+
       final lastLaunchInterrupted =
           await configService.wasLastLaunchInterrupted();
       await configService.markLaunchStarted();
@@ -460,6 +466,9 @@ class AppState extends ChangeNotifier {
       // 初始化日志服务
       await logger.initialize();
       await logger.info('AppState', '应用开始初始化');
+      if (migrated > 0) {
+        await logger.info('AppState', '已从 EchoTrace 迁移 $migrated 项配置');
+      }
 
       // 加载本地缓存的头像
       await _loadCachedAvatars();

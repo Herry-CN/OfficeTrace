@@ -238,10 +238,24 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
       _databaseFiles.clear();
 
-      // 如果没有配置路径，使用默认路径
+      // 如果没有配置路径，使用默认路径（兼容 Documents 与用户目录下的 xwechat_files）
       if (configuredPath == null || configuredPath.isEmpty) {
-        configuredPath =
-            '$systemDocumentsPath${Platform.pathSeparator}xwechat_files';
+        final homeDir = Platform.environment['USERPROFILE'] ??
+            Platform.environment['HOME'] ??
+            '';
+        final candidates = <String>[
+          if (homeDir.isNotEmpty)
+            '$homeDir${Platform.pathSeparator}xwechat_files',
+          '$systemDocumentsPath${Platform.pathSeparator}xwechat_files',
+          if (homeDir.isNotEmpty)
+            '$homeDir${Platform.pathSeparator}Documents${Platform.pathSeparator}WeChat Files',
+        ];
+        configuredPath = candidates.firstWhere(
+          (path) => Directory(path).existsSync(),
+          orElse: () => candidates.isNotEmpty
+              ? candidates.first
+              : '$systemDocumentsPath${Platform.pathSeparator}xwechat_files',
+        );
       }
 
       // 智能识别路径类型并扫描数据库

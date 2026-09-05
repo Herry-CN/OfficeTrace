@@ -362,6 +362,10 @@ class _SettingsPageState extends State<SettingsPage>
         possiblePaths.add(
           '$homeDir${Platform.pathSeparator}Documents${Platform.pathSeparator}xwechat_files',
         );
+        // 新版微信常见：直接放在用户目录下
+        possiblePaths.add(
+          '$homeDir${Platform.pathSeparator}xwechat_files',
+        );
       }
 
       for (final path in possiblePaths) {
