@@ -39,6 +39,7 @@ class ConfigService {
   static const String _keyLeadPromptCategories = 'lead_prompt_categories';
   static const String _keyMonitorIntervalSeconds = 'monitor_interval_seconds';
   static const String _keyMonitorAutoCapture = 'monitor_auto_capture';
+  static const String _keyMonitorSelectedGroups = 'monitor_selected_groups';
 
   /// 保存解密密钥
   Future<void> saveDecryptKey(String key) async {
@@ -324,6 +325,19 @@ class ConfigService {
     return prefs.getBool(_keyMonitorAutoCapture) ?? false;
   }
 
+  Future<void> saveMonitorSelectedGroups(List<String> usernames) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _keyMonitorSelectedGroups,
+      usernames.where((u) => u.trim().isNotEmpty).toList(),
+    );
+  }
+
+  Future<List<String>> getMonitorSelectedGroups() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_keyMonitorSelectedGroups) ?? const [];
+  }
+
   /// 清除所有配置
   Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
@@ -349,5 +363,6 @@ class ConfigService {
     await prefs.remove(_keyLeadPromptCategories);
     await prefs.remove(_keyMonitorIntervalSeconds);
     await prefs.remove(_keyMonitorAutoCapture);
+    await prefs.remove(_keyMonitorSelectedGroups);
   }
 }

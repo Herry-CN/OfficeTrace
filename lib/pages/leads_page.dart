@@ -1,19 +1,12 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../models/chat_session.dart';
 import '../models/lead.dart';
-import '../models/message.dart';
 import '../providers/app_state.dart';
-import '../services/config_service.dart';
-import '../services/lead/ai_client_service.dart';
-import '../services/lead/lead_pipeline_service.dart';
 import '../services/lead/lead_store.dart';
 import '../widgets/decrypt_required_gate.dart';
 
-/// 商机中心：列表、过滤、单群/批量抓取
+/// 商机中心：列表、筛选、跟进（抓取在「群监控」）
 class LeadsPage extends StatefulWidget {
   const LeadsPage({super.key});
 
@@ -23,16 +16,11 @@ class LeadsPage extends StatefulWidget {
 
 class _LeadsPageState extends State<LeadsPage> {
   final _store = LeadStore();
-  final _config = ConfigService();
-  final _ai = AiClientService();
 
   List<Lead> _leads = [];
-  List<ChatSession> _groups = [];
-  String? _selectedGroupUsername;
   String _categoryFilter = 'all';
   String _statusFilter = 'pending'; // pending | completed | all
   bool _loading = true;
-  bool _capturing = false;
   String? _statusMessage;
 
   @override
@@ -42,14 +30,8 @@ class _LeadsPageState extends State<LeadsPage> {
   }
 
   Future<void> _bootstrap() async {
-    final appState = context.read<AppState>();
-    // AI 探测不阻塞首屏；失败也不影响商机列表展示
-    unawaited(_ai.loadFromConfig().catchError((_) {}));
     try {
       await _refreshLeads();
-      if (appState.databaseService.isConnected) {
-        await _loadGroups(appState);
-      }
     } catch (e) {
       if (mounted) {
         setState(() => _statusMessage = '加载失败: $e');
@@ -65,25 +47,6 @@ class _LeadsPageState extends State<LeadsPage> {
     setState(() => _leads = all);
   }
 
-  Future<void> _loadGroups(AppState appState) async {
-    try {
-      // 仅拉群聊，避免会话全量 + 逐条联系人查询卡住加载
-      final groups = await appState.databaseService.getSessions(
-        groupsOnly: true,
-      );
-      if (!mounted) return;
-      setState(() {
-        _groups = groups;
-        if (_selectedGroupUsername == null && groups.isNotEmpty) {
-          _selectedGroupUsername = groups.first.username;
-        }
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _statusMessage = '加载群列表失败: $e');
-    }
-  }
-
   List<Lead> get _filtered {
     return _leads.where((lead) {
       if (_statusFilter == 'pending' && lead.completed) return false;
@@ -93,92 +56,6 @@ class _LeadsPageState extends State<LeadsPage> {
       }
       return true;
     }).toList();
-  }
-
-  Future<List<LeadChatMessage>> _loadRecentMessages(
-    AppState appState,
-    String sessionId,
-  ) async {
-    final hours = await _config.getAiAnalysisHours();
-    final cutoff = DateTime.now().subtract(Duration(hours: hours));
-    final cutoffSec = cutoff.millisecondsSinceEpoch ~/ 1000;
-    final messages = await appState.databaseService.getMessages(
-      sessionId,
-      limit: 120,
-      offset: 0,
-    );
-    return messages
-        .where((m) => m.createTime >= cutoffSec)
-        .where((m) => m.displayContent.trim().isNotEmpty)
-        .map(_messageToLeadChat)
-        .toList();
-  }
-
-  LeadChatMessage _messageToLeadChat(Message m) {
-    return LeadChatMessage(
-      id: m.localId.toString(),
-      sender: m.senderUsername,
-      content: m.displayContent,
-      timestampMs: m.createTime * 1000,
-    );
-  }
-
-  Future<void> _captureSelected({bool batch = false}) async {
-    final appState = context.read<AppState>();
-    if (!appState.databaseService.isConnected) return;
-
-    final targets = <ChatSession>[];
-    if (batch) {
-      targets.addAll(_groups);
-    } else {
-      ChatSession? selected;
-      for (final g in _groups) {
-        if (g.username == _selectedGroupUsername) {
-          selected = g;
-          break;
-        }
-      }
-      if (selected != null) targets.add(selected);
-    }
-    if (targets.isEmpty) {
-      setState(() => _statusMessage = '请先选择群聊');
-      return;
-    }
-
-    setState(() {
-      _capturing = true;
-      _statusMessage = '正在抓取商机…';
-    });
-
-    try {
-      await _ai.loadFromConfig();
-      final threshold = await _config.getConfidenceThreshold();
-      final pipeline = LeadPipelineService(aiClient: _ai, store: _store);
-      var total = 0;
-      for (final group in targets) {
-        final chatName = group.displayName?.isNotEmpty == true
-            ? group.displayName!
-            : group.username;
-        final msgs = await _loadRecentMessages(appState, group.username);
-        if (msgs.isEmpty) continue;
-        final created = await pipeline.generateFromChat(
-          msgs,
-          chatName,
-          confidenceThreshold: threshold,
-        );
-        total += created.length;
-      }
-      await _refreshLeads();
-      if (!mounted) return;
-      setState(() {
-        _statusMessage = total > 0 ? '新增 $total 条商机' : '未发现新的商机（可能已去重或低于置信度）';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _statusMessage = '抓取失败: $e');
-    } finally {
-      if (mounted) setState(() => _capturing = false);
-    }
   }
 
   Future<void> _showDetail(Lead lead) async {
@@ -229,6 +106,7 @@ class _LeadsPageState extends State<LeadsPage> {
     }
 
     final filtered = _filtered;
+    final theme = Theme.of(context);
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -239,93 +117,34 @@ class _LeadsPageState extends State<LeadsPage> {
             children: [
               Text(
                 '商机中心',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const Spacer(),
-              if (_statusMessage != null)
-                Flexible(
-                  child: Text(
-                    _statusMessage!,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 280,
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: '目标群聊',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      isExpanded: true,
-                      isDense: true,
-                      value: _groups.any(
-                            (g) => g.username == _selectedGroupUsername,
-                          )
-                          ? _selectedGroupUsername
-                          : null,
-                      hint: const Text('选择群聊'),
-                      items: _groups
-                          .map(
-                            (g) => DropdownMenuItem(
-                              value: g.username,
-                              child: Text(
-                                g.displayName?.isNotEmpty == true
-                                    ? g.displayName!
-                                    : g.username,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) =>
-                          setState(() => _selectedGroupUsername = v),
-                    ),
-                  ),
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: _capturing ? null : () => _captureSelected(),
-                icon: _capturing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.auto_awesome),
-                label: const Text('智能抓取'),
-              ),
-              OutlinedButton.icon(
-                onPressed:
-                    _capturing ? null : () => _captureSelected(batch: true),
-                icon: const Icon(Icons.playlist_add_check),
-                label: const Text('批量抓取全部群'),
-              ),
               IconButton(
                 tooltip: '刷新',
                 onPressed: _refreshLeads,
                 icon: const Icon(Icons.refresh),
               ),
+              if (_statusMessage != null)
+                Flexible(
+                  child: Text(
+                    _statusMessage!,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          Text(
+            '请在「群监控」选择群并抓取；此处查看与跟进商机。',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+          const SizedBox(height: 16),
           Wrap(
             spacing: 16,
             runSpacing: 8,
@@ -355,7 +174,7 @@ class _LeadsPageState extends State<LeadsPage> {
               ),
               Text(
                 '共 ${filtered.length} 条',
-                style: Theme.of(context).textTheme.bodySmall,
+                style: theme.textTheme.bodySmall,
               ),
             ],
           ),
@@ -364,18 +183,17 @@ class _LeadsPageState extends State<LeadsPage> {
             child: filtered.isEmpty
                 ? Center(
                     child: Text(
-                      '暂无商机。选择群聊后点击「智能抓取」。',
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.5),
-                          ),
+                      '暂无商机。请到「群监控」选择群后点击「立即抓取已选群」。',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.5),
+                      ),
                     ),
                   )
                 : ListView.separated(
                     itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
                       final lead = filtered[index];
                       final conf = lead.confidence;
@@ -399,7 +217,7 @@ class _LeadsPageState extends State<LeadsPage> {
                                 : Icons.fiber_new,
                             color: lead.completed
                                 ? Colors.green
-                                : Theme.of(context).colorScheme.primary,
+                                : theme.colorScheme.primary,
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
