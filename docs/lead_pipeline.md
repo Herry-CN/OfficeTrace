@@ -26,10 +26,24 @@
 
 设置页「商机 AI 配置」：
 
-- provider：`auto` / `ollama` / `openai`  
-- Ollama Base URL（默认 `http://localhost:11434`）  
-- OpenAI API Key（可选）  
-- 模型名、置信度阈值、分析时窗  
+- provider：`auto`（优先 LM Studio）/ `openai`（OpenAI 兼容，含 LM Studio）/ `ollama`
+- OpenAI 兼容 Base URL（LM Studio 默认 `http://localhost:1234/v1`）
+- Ollama Base URL（默认 `http://localhost:11434`）
+- API Key（本地 LM Studio 可填 `lm-studio` 或留空）
+- 模型名、置信度阈值、分析时窗
+
+推荐本地组合（本机实测）：
+
+- 硬件：RTX A1000 6GB + 32GB RAM
+- 模型：`Qwen2.5-7B-Instruct` Q4_K_M（中文商机分类/提取效果好，显存友好）
+- 服务：LM Studio Local Server `1234`，加载后 LeadTrace 选「OpenAI 兼容 / LM Studio」
+
+活体对接测试：
+
+```powershell
+$env:LEADTRACE_LIVE_AI=1
+flutter test test/lead_lmstudio_live_test.dart
+```
 
 ## 后续可选增强
 

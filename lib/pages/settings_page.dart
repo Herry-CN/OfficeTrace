@@ -42,6 +42,7 @@ class _SettingsPageState extends State<SettingsPage>
   final _imageAesKeyController = TextEditingController();
   final _ollamaUrlController = TextEditingController();
   final _openaiKeyController = TextEditingController();
+  final _openaiBaseUrlController = TextEditingController();
   final _aiModelController = TextEditingController();
   final _configService = ConfigService();
   late final DecryptService _decryptService;
@@ -94,6 +95,7 @@ class _SettingsPageState extends State<SettingsPage>
     _imageAesKeyController.dispose();
     _ollamaUrlController.dispose();
     _openaiKeyController.dispose();
+    _openaiBaseUrlController.dispose();
     _aiModelController.dispose();
     _toast.dispose();
     _decryptService.dispose();
@@ -130,6 +132,7 @@ class _SettingsPageState extends State<SettingsPage>
     final debugMode = await _configService.getDebugMode();
     final ollamaUrl = await _configService.getOllamaBaseUrl();
     final openaiKey = await _configService.getOpenaiApiKey();
+    final openaiBaseUrl = await _configService.getOpenaiBaseUrl();
     final aiProvider = await _configService.getAiProvider();
     final aiModel = await _configService.getAiModel();
     final confidence = await _configService.getConfidenceThreshold();
@@ -154,6 +157,7 @@ class _SettingsPageState extends State<SettingsPage>
         _debugMode = debugMode;
         _ollamaUrlController.text = ollamaUrl;
         _openaiKeyController.text = openaiKey ?? '';
+        _openaiBaseUrlController.text = openaiBaseUrl;
         _aiProvider = aiProvider;
         _aiModelController.text = aiModel ?? '';
         _confidenceThreshold = confidence;
@@ -801,6 +805,7 @@ class _SettingsPageState extends State<SettingsPage>
       await _configService.saveAiProvider(_aiProvider);
       await _configService.saveOllamaBaseUrl(_ollamaUrlController.text.trim());
       await _configService.saveOpenaiApiKey(_openaiKeyController.text.trim());
+      await _configService.saveOpenaiBaseUrl(_openaiBaseUrlController.text.trim());
       await _configService.saveAiModel(_aiModelController.text.trim());
       await _configService.saveConfidenceThreshold(_confidenceThreshold);
       await _configService.saveAiAnalysisHours(_aiAnalysisHours);
@@ -827,6 +832,7 @@ class _SettingsPageState extends State<SettingsPage>
       final ai = AiClientService(configService: _configService);
       await ai.configure(
         openaiKey: _openaiKeyController.text.trim(),
+        openaiBaseUrl: _openaiBaseUrlController.text.trim(),
         ollamaUrl: _ollamaUrlController.text.trim(),
         model: _aiModelController.text.trim(),
         provider: _aiProvider,
@@ -2352,7 +2358,7 @@ class _SettingsPageState extends State<SettingsPage>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '优先使用本地 Ollama；也可配置 OpenAI。置信度低于阈值的结果会被丢弃。',
+                    '优先检测本地 LM Studio（OpenAI 兼容，默认 localhost:1234）；也可使用 Ollama / 云端 OpenAI。',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context)
                               .colorScheme
@@ -2369,12 +2375,21 @@ class _SettingsPageState extends State<SettingsPage>
                       isDense: true,
                     ),
                     items: const [
-                      DropdownMenuItem(value: 'auto', child: Text('自动（优先 Ollama）')),
+                      DropdownMenuItem(value: 'auto', child: Text('自动（优先 LM Studio）')),
+                      DropdownMenuItem(value: 'openai', child: Text('OpenAI 兼容 / LM Studio')),
                       DropdownMenuItem(value: 'ollama', child: Text('Ollama')),
-                      DropdownMenuItem(value: 'openai', child: Text('OpenAI')),
                     ],
                     onChanged: (v) =>
                         setState(() => _aiProvider = v ?? 'auto'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _openaiBaseUrlController,
+                    decoration: const InputDecoration(
+                      labelText: 'OpenAI 兼容 Base URL（LM Studio 默认 http://localhost:1234/v1）',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -2389,7 +2404,7 @@ class _SettingsPageState extends State<SettingsPage>
                   TextFormField(
                     controller: _openaiKeyController,
                     decoration: const InputDecoration(
-                      labelText: 'OpenAI API Key（可选）',
+                      labelText: 'API Key（本地 LM Studio 可填 lm-studio 或留空）',
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
@@ -2399,7 +2414,7 @@ class _SettingsPageState extends State<SettingsPage>
                   TextFormField(
                     controller: _aiModelController,
                     decoration: const InputDecoration(
-                      labelText: '模型名（可选，如 qwen2.5）',
+                      labelText: '模型名（留空则自动选择已加载模型）',
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),

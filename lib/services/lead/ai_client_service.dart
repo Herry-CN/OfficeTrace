@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import '../../models/lead.dart';
 import '../config_service.dart';
 
-/// Ollama / OpenAI 客户端：商机分类与结构化提取
+/// Ollama / OpenAI 兼容客户端（含 LM Studio）：商机分类与结构化提取
 class AiClientService {
   AiClientService({ConfigService? configService, http.Client? httpClient})
       : _config = configService ?? ConfigService(),
@@ -16,7 +16,7 @@ class AiClientService {
 
   String? provider;
   String ollamaUrl = 'http://localhost:11434';
-  String openaiUrl = 'https://api.openai.com/v1';
+  String openaiUrl = 'http://localhost:1234/v1';
   String? openaiKey;
   String? model;
   bool isReady = false;
@@ -27,15 +27,32 @@ class AiClientService {
 - 寻找资源（寻找合作伙伴、渠道、供应商、场地等）
 - 寻找咨询老师或专家（咨询方向、领域、联系方式等）''';
 
+  String get _openaiBase {
+    var base = openaiUrl.trim();
+    if (base.endsWith('/')) base = base.substring(0, base.length - 1);
+    if (!base.endsWith('/v1')) {
+      // LM Studio 常用根地址 http://localhost:1234
+      if (base.contains('1234') && !base.contains('/v1')) {
+        base = '$base/v1';
+      }
+    }
+    return base;
+  }
+
   Future<void> loadFromConfig() async {
     ollamaUrl = await _config.getOllamaBaseUrl();
+    openaiUrl = await _config.getOpenaiBaseUrl();
     openaiKey = await _config.getOpenaiApiKey();
     final preferred = await _config.getAiProvider();
     model = await _config.getAiModel();
     todoPromptCategories = await _config.getLeadPromptCategories();
-    if (preferred == 'openai' && (openaiKey?.isNotEmpty ?? false)) {
+    if (preferred == 'openai') {
       provider = 'openai';
-      model ??= 'gpt-3.5-turbo';
+      final models = await getOpenAiModels();
+      if ((model == null || model!.isEmpty) && models.isNotEmpty) {
+        model = pickPreferredOllamaModel(models) ?? models.first;
+      }
+      model ??= 'local-model';
       isReady = true;
       return;
     }
@@ -47,19 +64,24 @@ class AiClientService {
       await autoDetectProvider();
     } catch (_) {}
     final ollamaAvailable = await checkOllama();
+    final openAiAvailable = await checkOpenAiCompatible();
     return {
       'provider': provider,
       'model': model,
       'isReady': isReady,
       'ollamaAvailable': ollamaAvailable,
-      'openaiConfigured': openaiKey != null && openaiKey!.isNotEmpty,
+      'openaiAvailable': openAiAvailable,
+      'openaiConfigured': openAiAvailable || (openaiKey?.isNotEmpty ?? false),
+      'openaiBaseUrl': _openaiBase,
       'ollamaModels': ollamaAvailable ? await getOllamaModels() : <String>[],
+      'openaiModels': openAiAvailable ? await getOpenAiModels() : <String>[],
       'todoPromptCategories': todoPromptCategories,
     };
   }
 
   Future<void> configure({
     String? openaiKey,
+    String? openaiBaseUrl,
     String? ollamaUrl,
     String? model,
     String? provider,
@@ -68,6 +90,12 @@ class AiClientService {
     if (openaiKey != null) {
       this.openaiKey = openaiKey.trim().isEmpty ? null : openaiKey.trim();
       await _config.saveOpenaiApiKey(this.openaiKey ?? '');
+    }
+    if (openaiBaseUrl != null) {
+      this.openaiUrl = openaiBaseUrl.trim().isEmpty
+          ? 'http://localhost:1234/v1'
+          : openaiBaseUrl.trim();
+      await _config.saveOpenaiBaseUrl(this.openaiUrl);
     }
     if (ollamaUrl != null) {
       this.ollamaUrl =
@@ -92,24 +120,57 @@ class AiClientService {
 
   Future<void> autoDetectProvider() async {
     final preferred = await _config.getAiProvider();
-    if (preferred == 'openai' && (openaiKey?.isNotEmpty ?? false)) {
+    openaiUrl = await _config.getOpenaiBaseUrl();
+    openaiKey = await _config.getOpenaiApiKey();
+
+    if (preferred == 'openai') {
       provider = 'openai';
-      model ??= 'gpt-3.5-turbo';
+      final models = await getOpenAiModels();
+      if ((model == null || model!.isEmpty) && models.isNotEmpty) {
+        model = pickPreferredOllamaModel(models) ?? models.first;
+      }
+      model ??= 'local-model';
       isReady = true;
       return;
     }
 
-    final ollamaAvailable = await checkOllama();
-    if (ollamaAvailable) {
-      provider = 'ollama';
-      if (model == null || model!.isEmpty) {
-        final models = await getOllamaModels();
-        if (models.isNotEmpty) {
+    // auto：优先 LM Studio / OpenAI 兼容本地服务，再 Ollama
+    if (preferred == 'auto' || preferred == 'ollama') {
+      final openAiAvailable = await checkOpenAiCompatible();
+      if (openAiAvailable && preferred != 'ollama') {
+        provider = 'openai';
+        final models = await getOpenAiModels();
+        if ((model == null || model!.isEmpty) && models.isNotEmpty) {
           model = pickPreferredOllamaModel(models) ?? models.first;
         }
+        model ??= 'local-model';
+        isReady = true;
+        return;
       }
-      isReady = model != null && model!.isNotEmpty;
-      return;
+
+      final ollamaAvailable = await checkOllama();
+      if (ollamaAvailable) {
+        provider = 'ollama';
+        if (model == null || model!.isEmpty) {
+          final models = await getOllamaModels();
+          if (models.isNotEmpty) {
+            model = pickPreferredOllamaModel(models) ?? models.first;
+          }
+        }
+        isReady = model != null && model!.isNotEmpty;
+        return;
+      }
+
+      if (openAiAvailable) {
+        provider = 'openai';
+        final models = await getOpenAiModels();
+        if ((model == null || model!.isEmpty) && models.isNotEmpty) {
+          model = pickPreferredOllamaModel(models) ?? models.first;
+        }
+        model ??= 'local-model';
+        isReady = true;
+        return;
+      }
     }
 
     if (openaiKey != null && openaiKey!.isNotEmpty) {
@@ -133,6 +194,22 @@ class AiClientService {
     }
   }
 
+  Future<bool> checkOpenAiCompatible() async {
+    try {
+      final headers = <String, String>{'Content-Type': 'application/json'};
+      final key = (openaiKey == null || openaiKey!.isEmpty)
+          ? 'lm-studio'
+          : openaiKey!;
+      headers['Authorization'] = 'Bearer $key';
+      final response = await _http
+          .get(Uri.parse('$_openaiBase/models'), headers: headers)
+          .timeout(const Duration(seconds: 2));
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<List<String>> getOllamaModels() async {
     try {
       final response = await _http.get(Uri.parse('$ollamaUrl/api/tags'));
@@ -149,6 +226,30 @@ class AiClientService {
     }
   }
 
+  Future<List<String>> getOpenAiModels() async {
+    try {
+      final headers = <String, String>{'Content-Type': 'application/json'};
+      final key = (openaiKey == null || openaiKey!.isEmpty)
+          ? 'lm-studio'
+          : openaiKey!;
+      headers['Authorization'] = 'Bearer $key';
+      final response = await _http.get(
+        Uri.parse('$_openaiBase/models'),
+        headers: headers,
+      );
+      if (response.statusCode != 200) return [];
+      final data = jsonDecode(response.body);
+      final models = data['data'];
+      if (models is! List) return [];
+      return models
+          .map((m) => m is Map ? m['id']?.toString() : null)
+          .whereType<String>()
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   String? pickPreferredOllamaModel(
     List<String> models, {
     Iterable<String> exclude = const [],
@@ -156,9 +257,9 @@ class AiClientService {
     final excluded = exclude.where((e) => e.isNotEmpty).toSet();
     final ordered = [
       ...models.where((m) => RegExp(r'qwen2\.5', caseSensitive: false).hasMatch(m)),
+      ...models.where((m) => RegExp(r'qwen', caseSensitive: false).hasMatch(m)),
       ...models.where((m) => RegExp(r'llama', caseSensitive: false).hasMatch(m)),
       ...models.where((m) => RegExp(r'mistral', caseSensitive: false).hasMatch(m)),
-      ...models.where((m) => RegExp(r'qwen', caseSensitive: false).hasMatch(m)),
       ...models,
     ];
     for (final m in ordered) {
@@ -171,7 +272,7 @@ class AiClientService {
     if (!isReady) {
       await autoDetectProvider();
       if (!isReady) {
-        throw Exception('AI服务未配置。请先配置 Ollama 或 OpenAI。');
+        throw Exception('AI服务未配置。请先启动 LM Studio / Ollama，或配置 OpenAI。');
       }
     }
     if (provider == 'ollama') {
@@ -233,25 +334,30 @@ class AiClientService {
     final messages = [
       {
         'role': 'system',
-        'content': '你是一个智能助手，帮助用户从微信群聊中抓取商务商机。',
+        'content':
+            '你是一个智能助手，帮助用户从微信群聊中抓取商务商机。请只返回合法 JSON，不要附加解释。',
       },
       ...context.map((c) => {'role': c['role'] ?? 'user', 'content': c['content'] ?? ''}),
       {'role': 'user', 'content': message},
     ];
+    final key =
+        (openaiKey == null || openaiKey!.isEmpty) ? 'lm-studio' : openaiKey!;
     final response = await _http.post(
-      Uri.parse('$openaiUrl/chat/completions'),
+      Uri.parse('$_openaiBase/chat/completions'),
       headers: {
-        'Authorization': 'Bearer $openaiKey',
+        'Authorization': 'Bearer $key',
         'Content-Type': 'application/json',
       },
       body: jsonEncode({
-        'model': model ?? 'gpt-3.5-turbo',
+        'model': model ?? 'local-model',
         'messages': messages,
-        'temperature': 0.3,
+        'temperature': 0.2,
       }),
     );
     if (response.statusCode >= 400) {
-      throw Exception('OpenAI请求失败: HTTP ${response.statusCode}');
+      throw Exception(
+        'OpenAI兼容请求失败: HTTP ${response.statusCode} ${response.body}',
+      );
     }
     final data = jsonDecode(response.body);
     final choices = data['choices'];

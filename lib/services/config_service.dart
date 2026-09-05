@@ -20,6 +20,7 @@ class ConfigService {
       'analytics_excluded_usernames'; // 数据分析排除名单
   static const String _keyOllamaBaseUrl = 'ollama_base_url';
   static const String _keyOpenaiApiKey = 'openai_api_key';
+  static const String _keyOpenaiBaseUrl = 'openai_base_url';
   static const String _keyAiProvider = 'ai_provider'; // ollama | openai | auto
   static const String _keyAiModel = 'ai_model';
   static const String _keyConfidenceThreshold = 'lead_confidence_threshold';
@@ -230,6 +231,16 @@ class ConfigService {
     return key.trim();
   }
 
+  Future<void> saveOpenaiBaseUrl(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyOpenaiBaseUrl, url);
+  }
+
+  Future<String> getOpenaiBaseUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyOpenaiBaseUrl) ?? 'http://localhost:1234/v1';
+  }
+
   Future<void> saveAiProvider(String provider) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyAiProvider, provider);
@@ -319,6 +330,7 @@ class ConfigService {
     await prefs.remove(_keyAnalyticsExcludedUsernames);
     await prefs.remove(_keyOllamaBaseUrl);
     await prefs.remove(_keyOpenaiApiKey);
+    await prefs.remove(_keyOpenaiBaseUrl);
     await prefs.remove(_keyAiProvider);
     await prefs.remove(_keyAiModel);
     await prefs.remove(_keyConfidenceThreshold);
