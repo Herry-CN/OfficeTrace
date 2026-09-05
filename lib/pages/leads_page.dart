@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -41,12 +43,20 @@ class _LeadsPageState extends State<LeadsPage> {
 
   Future<void> _bootstrap() async {
     final appState = context.read<AppState>();
-    await _ai.loadFromConfig();
-    await _refreshLeads();
-    if (appState.databaseService.isConnected) {
-      await _loadGroups(appState);
+    // AI 探测不阻塞首屏；失败也不影响商机列表展示
+    unawaited(_ai.loadFromConfig().catchError((_) {}));
+    try {
+      await _refreshLeads();
+      if (appState.databaseService.isConnected) {
+        await _loadGroups(appState);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _statusMessage = '加载失败: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _refreshLeads() async {
@@ -57,8 +67,10 @@ class _LeadsPageState extends State<LeadsPage> {
 
   Future<void> _loadGroups(AppState appState) async {
     try {
-      final sessions = await appState.databaseService.getSessions();
-      final groups = sessions.where((s) => s.isGroup).toList();
+      // 仅拉群聊，避免会话全量 + 逐条联系人查询卡住加载
+      final groups = await appState.databaseService.getSessions(
+        groupsOnly: true,
+      );
       if (!mounted) return;
       setState(() {
         _groups = groups;
@@ -92,7 +104,7 @@ class _LeadsPageState extends State<LeadsPage> {
     final cutoffSec = cutoff.millisecondsSinceEpoch ~/ 1000;
     final messages = await appState.databaseService.getMessages(
       sessionId,
-      limit: 800,
+      limit: 120,
       offset: 0,
     );
     return messages

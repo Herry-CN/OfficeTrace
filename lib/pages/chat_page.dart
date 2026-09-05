@@ -1621,7 +1621,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         return; // 数据库未连接，不显示错误，由UI显示提示
       }
 
-      // 异步加载会话列表
+      // 异步加载会话列表（批量补名，不再逐会话慢查）
       final sessions = await appState.databaseService.getSessions();
 
       // 在后台线程过滤会话
@@ -1640,18 +1640,19 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
       // 确保我的头像已加载（数据库连接后再尝试一次）
       if (_myAvatarUrl == null || _myAvatarUrl!.isEmpty) {
-        await _loadMyAvatar();
+        unawaited(_loadMyAvatar());
       }
 
-      // 异步加载头像（使用全局缓存）
+      // 头像异步补齐，只拉前若干个，避免阻塞会话列表
       try {
-        final appState = context.read<AppState>();
+        final appStateForAvatar = context.read<AppState>();
         final usernamesToFetch = filteredSessions
+            .take(60)
             .map((s) => s.username)
-            .where((u) => !appState.isAvatarCached(u))
+            .where((u) => !appStateForAvatar.isAvatarCached(u))
             .toList();
         if (usernamesToFetch.isNotEmpty) {
-          await appState.fetchAndCacheAvatars(usernamesToFetch);
+          unawaited(appStateForAvatar.fetchAndCacheAvatars(usernamesToFetch));
         }
       } catch (_) {}
     } catch (e, stackTrace) {

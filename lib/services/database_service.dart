@@ -308,7 +308,11 @@ class DatabaseService {
 
   /// 获取会话列表
   /// [limit] 为 null 时不限制数量，默认不限制以支持完整导出
-  Future<List<ChatSession>> getSessions({int? limit}) async {
+  Future<List<ChatSession>> getSessions({
+    int? limit,
+    bool groupsOnly = false,
+    bool enrichNames = true,
+  }) async {
     // 实时模式：通过 WCDB DLL 获取会话
     if (_mode == DatabaseMode.realtime && _wcdbHandle != null) {
       try {
@@ -342,27 +346,33 @@ class DatabaseService {
             }
           }
 
-          final allSessions = maps
-              .map((map) => ChatSession.fromMap(map))
-              .toList();
+          final allSessions =
+              maps.map((map) => ChatSession.fromMap(map)).toList();
 
-          final filteredSessions = allSessions.where((session) {
+          var filteredSessions = allSessions.where((session) {
+            if (groupsOnly && !session.isGroup) return false;
             return ChatSession.shouldKeep(session.username);
           }).toList();
 
+          if (limit != null && filteredSessions.length > limit) {
+            filteredSessions = filteredSessions.take(limit).toList();
+          }
+
           // 填充显示名（从联系人数据库获取）
-          try {
-            final names = WeChatWCDBNative.getDisplayNames(
-              _wcdbHandle!,
-              filteredSessions.map((e) => e.username).toList(),
-            );
-            for (final s in filteredSessions) {
-              final n = names[s.username];
-              if (n != null && n.isNotEmpty) {
-                s.displayName = n;
+          if (enrichNames) {
+            try {
+              final names = WeChatWCDBNative.getDisplayNames(
+                _wcdbHandle!,
+                filteredSessions.map((e) => e.username).toList(),
+              );
+              for (final s in filteredSessions) {
+                final n = names[s.username];
+                if (n != null && n.isNotEmpty) {
+                  s.displayName = n;
+                }
               }
-            }
-          } catch (_) {}
+            } catch (_) {}
+          }
 
           await logger.info(
             'DatabaseService',
@@ -424,17 +434,23 @@ class DatabaseService {
         }
       }
 
-      await logger.info('DatabaseService', '从表 $sessionTableName 查询会话${limit != null ? '（限制 $limit 条）' : '（无限制）'}');
+      await logger.info(
+        'DatabaseService',
+        '从表 $sessionTableName 查询会话'
+        '${groupsOnly ? '（仅群聊）' : ''}'
+        '${limit != null ? '（限制 $limit 条）' : '（无限制）'}',
+      );
 
+      // 群聊优先在 SQL 层过滤，避免拉全量后再筛
       final List<Map<String, dynamic>> maps = await db.query(
         sessionTableName,
+        where: groupsOnly ? "username LIKE '%@chatroom'" : null,
         orderBy: 'sort_timestamp DESC',
-        limit: limit,  // null 表示不限制
+        limit: limit,
       );
 
       await logger.info('DatabaseService', '查询到 ${maps.length} 条原始会话记录');
 
-      // 获取会话列表后，尝试从 contact 数据库获取真实姓名
       final allSessions = maps.map((map) => ChatSession.fromMap(map)).toList();
 
       await logger.info(
@@ -444,6 +460,7 @@ class DatabaseService {
 
       // 过滤掉公众号、服务号等非正常联系人
       final filteredSessions = allSessions.where((session) {
+        if (groupsOnly && !session.isGroup) return false;
         return ChatSession.shouldKeep(session.username);
       }).toList();
 
@@ -452,8 +469,10 @@ class DatabaseService {
         '过滤后剩余 ${filteredSessions.length} 个会话',
       );
 
-      // 尝试连接 contact 数据库获取真实姓名
-      await _enrichSessionsWithContactInfo(filteredSessions);
+      // 批量补全显示名（避免逐会话查库导致长时间卡在加载）
+      if (enrichNames) {
+        await _enrichSessionsWithContactInfo(filteredSessions);
+      }
 
       await logger.info(
         'DatabaseService',
@@ -3507,7 +3526,13 @@ class DatabaseService {
   }
 
   /// 批量获取联系人显示名称（remark > nick_name > alias > username）
-  Future<Map<String, String>> getDisplayNames(List<String> usernames) async {
+  ///
+  /// [fast] 为 true 时跳过群成员拼名、模糊 LIKE、Name2Id 等慢路径，
+  /// 适合会话列表首次渲染。
+  Future<Map<String, String>> getDisplayNames(
+    List<String> usernames, {
+    bool fast = false,
+  }) async {
     if (usernames.isEmpty) {
       return {};
     }
@@ -3574,27 +3599,32 @@ class DatabaseService {
           List<String> targetUsernames,
         ) async {
           if (targetUsernames.isEmpty) return;
-          final placeholders = List.filled(
-            targetUsernames.length,
-            '?',
-          ).join(',');
-          final rows = await contactDb.rawQuery('''
+          // SQLite 变量数量有上限，分块 IN 查询
+          const chunkSize = 400;
+          for (var i = 0; i < targetUsernames.length; i += chunkSize) {
+            final end = (i + chunkSize < targetUsernames.length)
+                ? i + chunkSize
+                : targetUsernames.length;
+            final chunk = targetUsernames.sublist(i, end);
+            final placeholders = List.filled(chunk.length, '?').join(',');
+            final rows = await contactDb.rawQuery('''
             SELECT username, remark, nick_name, alias 
             FROM $table 
             WHERE username IN ($placeholders)
-          ''', targetUsernames);
-          for (final row in rows) {
-            final username = row['username'] as String;
-            final remark = row['remark'] as String?;
-            final alias = row['alias'] as String?;
-            final nickName = row['nick_name'] as String?;
-            // 显示名优先级：remark > nick_name > alias > username
-            final displayName = remark?.isNotEmpty == true
-                ? remark!
-                : (nickName?.isNotEmpty == true
-                      ? nickName!
-                      : (alias?.isNotEmpty == true ? alias! : username));
-            assignDisplayName(username, displayName);
+          ''', chunk);
+            for (final row in rows) {
+              final username = row['username'] as String;
+              final remark = row['remark'] as String?;
+              final alias = row['alias'] as String?;
+              final nickName = row['nick_name'] as String?;
+              // 显示名优先级：remark > nick_name > alias > username
+              final displayName = remark?.isNotEmpty == true
+                  ? remark!
+                  : (nickName?.isNotEmpty == true
+                        ? nickName!
+                        : (alias?.isNotEmpty == true ? alias! : username));
+              assignDisplayName(username, displayName);
+            }
           }
         }
 
@@ -3613,75 +3643,78 @@ class DatabaseService {
           } catch (e) {}
         }
 
-        // 3. 对于仍然没找到的群聊，尝试模糊匹配
-        notFoundUsernames = usernames
-            .where((u) => !result.containsKey(u))
-            .toList();
-        if (notFoundUsernames.isNotEmpty) {
-          final chatroomUsernames = notFoundUsernames
-              .where((u) => u.contains('@chatroom'))
+        // 慢路径：模糊匹配 / 群成员拼名 / Name2Id —— 列表首屏跳过
+        if (!fast) {
+          // 3. 对于仍然没找到的群聊，尝试模糊匹配
+          notFoundUsernames = usernames
+              .where((u) => !result.containsKey(u))
               .toList();
+          if (notFoundUsernames.isNotEmpty) {
+            final chatroomUsernames = notFoundUsernames
+                .where((u) => u.contains('@chatroom'))
+                .toList();
 
-          for (final username in chatroomUsernames) {
-            try {
-              final chatroomId = username.split('@').first;
-              final rows = await contactDb.rawQuery(
-                'SELECT username, remark, nick_name FROM contact WHERE username LIKE ? LIMIT 1',
-                ['%$chatroomId%'],
-              );
-
-              if (rows.isNotEmpty) {
-                final row = rows.first;
-                final remark = row['remark'] as String?;
-                final nickName = row['nick_name'] as String?;
-
-                String displayName;
-                if (remark?.isNotEmpty == true) {
-                  displayName = remark!;
-                } else if (nickName?.isNotEmpty == true) {
-                  displayName = nickName!;
-                } else {
-                  // 群聊没有名称，使用成员列表生成（仿微信）
-                  displayName = await _getChatroomDisplayName(
-                    username,
-                    contactDb,
-                  );
-                }
-
-                assignDisplayName(username, displayName);
-              }
-            } catch (e) {
-              // 忽略单个查询错误
-            }
-          }
-        }
-
-        // 4. 对于还是没找到的，尝试从 Name2Id 表查询（消息数据库中）
-        notFoundUsernames = usernames
-            .where((u) => !result.containsKey(u))
-            .toList();
-        if (notFoundUsernames.isNotEmpty) {
-          try {
-            final Database dbForMsg = await _getDbForMessages();
-            for (final username in notFoundUsernames) {
+            for (final username in chatroomUsernames) {
               try {
-                final searchKey = _normalizeUsernameForLookup(username);
-                if (searchKey.isEmpty) continue;
-                final rows = await dbForMsg.rawQuery(
-                  'SELECT user_name FROM Name2Id WHERE user_name LIKE ? LIMIT 1',
-                  ['%$searchKey%'],
+                final chatroomId = username.split('@').first;
+                final rows = await contactDb.rawQuery(
+                  'SELECT username, remark, nick_name FROM contact WHERE username LIKE ? LIMIT 1',
+                  ['%$chatroomId%'],
                 );
+
                 if (rows.isNotEmpty) {
-                  final foundName = rows.first['user_name'] as String?;
-                  if (foundName != null) {
-                    assignDisplayName(username, foundName);
+                  final row = rows.first;
+                  final remark = row['remark'] as String?;
+                  final nickName = row['nick_name'] as String?;
+
+                  String displayName;
+                  if (remark?.isNotEmpty == true) {
+                    displayName = remark!;
+                  } else if (nickName?.isNotEmpty == true) {
+                    displayName = nickName!;
+                  } else {
+                    // 群聊没有名称，使用成员列表生成（仿微信）
+                    displayName = await _getChatroomDisplayName(
+                      username,
+                      contactDb,
+                    );
                   }
+
+                  assignDisplayName(username, displayName);
                 }
               } catch (e) {
                 // 忽略单个查询错误
               }
             }
-          } catch (e) {}
+          }
+
+          // 4. 对于还是没找到的，尝试从 Name2Id 表查询（消息数据库中）
+          notFoundUsernames = usernames
+              .where((u) => !result.containsKey(u))
+              .toList();
+          if (notFoundUsernames.isNotEmpty) {
+            try {
+              final Database dbForMsg = await _getDbForMessages();
+              for (final username in notFoundUsernames) {
+                try {
+                  final searchKey = _normalizeUsernameForLookup(username);
+                  if (searchKey.isEmpty) continue;
+                  final rows = await dbForMsg.rawQuery(
+                    'SELECT user_name FROM Name2Id WHERE user_name LIKE ? LIMIT 1',
+                    ['%$searchKey%'],
+                  );
+                  if (rows.isNotEmpty) {
+                    final foundName = rows.first['user_name'] as String?;
+                    if (foundName != null) {
+                      assignDisplayName(username, foundName);
+                    }
+                  }
+                } catch (e) {
+                  // 忽略单个查询错误
+                }
+              }
+            } catch (e) {}
+          }
         }
 
         if (kDebugMode && result.length < usernames.length) {
@@ -4093,178 +4126,27 @@ class DatabaseService {
   Future<void> _enrichSessionsWithContactInfo(
     List<ChatSession> sessions,
   ) async {
+    if (sessions.isEmpty) return;
     try {
       await logger.info(
         'DatabaseService',
-        '开始从contact数据库加载联系人信息，会话数量: ${sessions.length}',
+        '批量补全会话显示名，会话数量: ${sessions.length}',
       );
-
-      // 尝试连接 contact 数据库（优先当前账号）
-      final contactDbPath = await getContactDatabasePath();
-      if (contactDbPath == null) {
-        await logger.warning('DatabaseService', '无法找到contact数据库，会话将显示原始用户名');
-        return;
-      }
-
-      await logger.info('DatabaseService', '正在打开contact数据库: $contactDbPath');
-
-      // 临时连接 contact 数据库
-      final contactDb = await _currentFactory.openDatabase(
-        contactDbPath,
-        options: OpenDatabaseOptions(readOnly: true, singleInstance: false),
+      final names = await getDisplayNames(
+        sessions.map((s) => s.username).toList(),
+        fast: true,
       );
-
-      try {
-        // 获取 contact 数据库的表结构
-        final tables = await contactDb.rawQuery(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
-        );
-
-        // 为每个会话查找对应的联系人信息
-        for (final session in sessions) {
-          try {
-            // 尝试多个可能的表名
-            List<Map<String, dynamic>> contactMaps = [];
-
-            // 首先尝试 'contact' 表（包括精确匹配和模糊匹配）
-            try {
-              // 1. 精确匹配
-              contactMaps = await contactDb.query(
-                'contact',
-                where: 'username = ?',
-                whereArgs: [session.username],
-                limit: 1,
-              );
-
-              // 2. 如果是群聊且精确匹配失败，尝试模糊匹配
-              if (contactMaps.isEmpty &&
-                  session.username.contains('@chatroom')) {
-                // 提取群聊ID部分（去掉@chatroom）
-                final chatroomId = session.username.split('@').first;
-                contactMaps = await contactDb.rawQuery(
-                  'SELECT * FROM contact WHERE username LIKE ? LIMIT 1',
-                  ['%$chatroomId%'],
-                );
-                if (contactMaps.isNotEmpty && kDebugMode) {
-                  // 模糊匹配找到群聊
-                }
-              }
-            } catch (e) {
-              // contact 表查询失败
-            }
-
-            // 如果 contact 表找不到，尝试 stranger 表
-            if (contactMaps.isEmpty) {
-              try {
-                contactMaps = await contactDb.query(
-                  'stranger',
-                  where: 'username = ?',
-                  whereArgs: [session.username],
-                  limit: 1,
-                );
-              } catch (e) {
-                // stranger 表查询失败
-              }
-            }
-
-            // 如果还是找不到，尝试其他包含 'contact' 的表
-            if (contactMaps.isEmpty) {
-              for (final table in tables) {
-                final tableName = table['name'] as String;
-                if (tableName.toLowerCase().contains('contact') &&
-                    tableName != 'contact' &&
-                    tableName != 'stranger') {
-                  try {
-                    contactMaps = await contactDb.query(
-                      tableName,
-                      where: 'username = ?',
-                      whereArgs: [session.username],
-                      limit: 1,
-                    );
-                    if (contactMaps.isNotEmpty) {
-                      break;
-                    }
-                  } catch (e) {
-                    // 继续尝试下一个表
-                  }
-                }
-              }
-            }
-
-            if (contactMaps.isNotEmpty) {
-              final contact = contactMaps.first;
-
-              // 检查联系人类型，过滤掉公众号、服务号等
-              final localType = contact['local_type'] as int? ?? 0;
-              final username =
-                  contact['username'] as String? ?? session.username;
-
-              // 过滤条件：只显示正常联系人和群聊
-              bool shouldShow = false;
-              if (username.contains('@chatroom')) {
-                // 群聊
-                shouldShow = true;
-              } else if (localType == 0 || localType == 1) {
-                // 正常联系人 (0=好友, 1=可能是好友)
-                shouldShow = true;
-              } else if (!username.contains('@')) {
-                // 普通用户（不限命名格式）
-                shouldShow = true;
-              }
-
-              if (shouldShow) {
-                // 优先显示备注，没有备注时显示昵称
-                String displayName = '';
-                final remark = contact['remark'] as String?;
-                final nickName = contact['nick_name'] as String?;
-
-                if (remark != null &&
-                    remark.isNotEmpty &&
-                    remark.trim().isNotEmpty) {
-                  displayName = remark.trim();
-                } else if (nickName != null &&
-                    nickName.isNotEmpty &&
-                    nickName.trim().isNotEmpty) {
-                  displayName = nickName.trim();
-                } else if (username.contains('@chatroom')) {
-                  // 群聊没有名称，使用成员列表生成（仿微信）
-                  displayName = await _getChatroomDisplayName(
-                    session.username,
-                    contactDb,
-                  );
-                } else {
-                  displayName = session.username;
-                }
-
-                // 清理显示名称中的无效字符
-                displayName = _cleanDisplayName(displayName);
-
-                // 更新会话的显示名称
-                session.displayName = displayName;
-              }
-            }
-          } catch (e) {
-            // 查找联系人失败
-          }
-        }
-
-        await logger.info(
-          'DatabaseService',
-          '成功加载联系人信息，已更新${sessions.where((s) => s.displayName != null && s.displayName!.isNotEmpty).length}个会话的显示名称',
-        );
-        // 打印没有成功更新显示名称的会话
-        // final sessionsWithoutDisplayName = sessions
-        //     .where((s) => s.displayName == null || s.displayName!.isEmpty)
-        //     .toList();
-        // if (sessionsWithoutDisplayName.isNotEmpty) {
-        //   await logger.warning('DatabaseService', '以下会话未能更新显示名称:');
-        //   for (final session in sessionsWithoutDisplayName) {
-        //     await logger.warning('DatabaseService', '  - ${session.username}');
-        //   }
-        // }
-      } finally {
-        await contactDb.close();
+      var updated = 0;
+      for (final session in sessions) {
+        final name = names[session.username];
+        if (name == null || name.isEmpty) continue;
+        session.displayName = _cleanDisplayName(name);
+        updated++;
       }
+      await logger.info(
+        'DatabaseService',
+        '成功批量更新 $updated 个会话显示名称',
+      );
     } catch (e, stackTrace) {
       await logger.error(
         'DatabaseService',

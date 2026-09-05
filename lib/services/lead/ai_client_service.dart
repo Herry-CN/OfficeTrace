@@ -48,9 +48,12 @@ class AiClientService {
     todoPromptCategories = await _config.getLeadPromptCategories();
     if (preferred == 'openai') {
       provider = 'openai';
-      final models = await getOpenAiModels();
-      if ((model == null || model!.isEmpty) && models.isNotEmpty) {
-        model = pickPreferredOllamaModel(models) ?? models.first;
+      // 已有模型时不再阻塞等待 LM Studio 枚举
+      if (model == null || model!.isEmpty) {
+        final models = await getOpenAiModels();
+        if (models.isNotEmpty) {
+          model = pickPreferredOllamaModel(models) ?? models.first;
+        }
       }
       model ??= 'local-model';
       isReady = true;
@@ -212,7 +215,9 @@ class AiClientService {
 
   Future<List<String>> getOllamaModels() async {
     try {
-      final response = await _http.get(Uri.parse('$ollamaUrl/api/tags'));
+      final response = await _http
+          .get(Uri.parse('$ollamaUrl/api/tags'))
+          .timeout(const Duration(seconds: 2));
       if (response.statusCode != 200) return [];
       final data = jsonDecode(response.body);
       final models = data['models'];
@@ -233,10 +238,12 @@ class AiClientService {
           ? 'lm-studio'
           : openaiKey!;
       headers['Authorization'] = 'Bearer $key';
-      final response = await _http.get(
-        Uri.parse('$_openaiBase/models'),
-        headers: headers,
-      );
+      final response = await _http
+          .get(
+            Uri.parse('$_openaiBase/models'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 2));
       if (response.statusCode != 200) return [];
       final data = jsonDecode(response.body);
       final models = data['data'];

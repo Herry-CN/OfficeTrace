@@ -53,18 +53,24 @@ class _GroupMonitorPageState extends State<GroupMonitorPage> {
 
   Future<void> _bootstrap() async {
     final appState = context.read<AppState>();
-    _intervalSeconds = await _config.getMonitorIntervalSeconds();
-    _autoCapture = await _config.getMonitorAutoCapture();
-    await _ai.loadFromConfig();
-    if (appState.databaseService.isConnected) {
-      try {
-        final sessions = await appState.databaseService.getSessions();
-        _groups = sessions.where((s) => s.isGroup).toList();
-      } catch (e) {
-        _status = '加载群列表失败: $e';
+    try {
+      _intervalSeconds = await _config.getMonitorIntervalSeconds();
+      _autoCapture = await _config.getMonitorAutoCapture();
+      unawaited(_ai.loadFromConfig().catchError((_) {}));
+      if (appState.databaseService.isConnected) {
+        try {
+          _groups = await appState.databaseService.getSessions(
+            groupsOnly: true,
+          );
+        } catch (e) {
+          _status = '加载群列表失败: $e';
+        }
       }
+    } catch (e) {
+      _status = '初始化失败: $e';
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
   void _toggleMonitor(bool enabled) {
