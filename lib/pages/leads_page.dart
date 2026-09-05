@@ -262,29 +262,43 @@ class _LeadsPageState extends State<LeadsPage> {
             children: [
               SizedBox(
                 width: 280,
-                child: DropdownButtonFormField<String>(
-                  value: _groups.any((g) => g.username == _selectedGroupUsername)
-                      ? _selectedGroupUsername
-                      : null,
+                child: InputDecorator(
                   decoration: const InputDecoration(
                     labelText: '目标群聊',
                     border: OutlineInputBorder(),
                     isDense: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                   ),
-                  items: _groups
-                      .map(
-                        (g) => DropdownMenuItem(
-                          value: g.username,
-                          child: Text(
-                            g.displayName?.isNotEmpty == true
-                                ? g.displayName!
-                                : g.username,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (v) => setState(() => _selectedGroupUsername = v),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      isDense: true,
+                      value: _groups.any(
+                            (g) => g.username == _selectedGroupUsername,
+                          )
+                          ? _selectedGroupUsername
+                          : null,
+                      hint: const Text('选择群聊'),
+                      items: _groups
+                          .map(
+                            (g) => DropdownMenuItem(
+                              value: g.username,
+                              child: Text(
+                                g.displayName?.isNotEmpty == true
+                                    ? g.displayName!
+                                    : g.username,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) =>
+                          setState(() => _selectedGroupUsername = v),
+                    ),
+                  ),
                 ),
               ),
               FilledButton.icon(
@@ -312,7 +326,10 @@ class _LeadsPageState extends State<LeadsPage> {
             ],
           ),
           const SizedBox(height: 12),
-          Row(
+          Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               SegmentedButton<String>(
                 segments: const [
@@ -324,7 +341,6 @@ class _LeadsPageState extends State<LeadsPage> {
                 onSelectionChanged: (s) =>
                     setState(() => _statusFilter = s.first),
               ),
-              const SizedBox(width: 16),
               DropdownButton<String>(
                 value: _categoryFilter,
                 items: const [
@@ -337,7 +353,6 @@ class _LeadsPageState extends State<LeadsPage> {
                 onChanged: (v) =>
                     setState(() => _categoryFilter = v ?? 'all'),
               ),
-              const Spacer(),
               Text(
                 '共 ${filtered.length} 条',
                 style: Theme.of(context).textTheme.bodySmall,
