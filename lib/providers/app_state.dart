@@ -46,6 +46,10 @@ class AppState extends ChangeNotifier {
   late final GroupMonitorController groupMonitor = GroupMonitorController(
     databaseService: databaseService,
     configService: configService,
+    reconnectDatabase: () => reconnectDatabase(
+      retryCount: 5,
+      retryDelay: 1500,
+    ),
   );
 
   BulkJobHandle? _activeBulkJob;

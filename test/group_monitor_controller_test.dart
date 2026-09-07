@@ -7,10 +7,29 @@ import 'package:leadtrace/models/chat_session.dart';
 import 'package:leadtrace/models/lead.dart';
 import 'package:leadtrace/models/message.dart';
 import 'package:leadtrace/services/database_service.dart';
+import 'package:leadtrace/services/incremental_decrypt_service.dart';
 import 'package:leadtrace/services/lead/ai_client_service.dart';
 import 'package:leadtrace/services/lead/group_monitor_controller.dart';
 import 'package:leadtrace/services/lead/lead_capture_service.dart';
 import 'package:leadtrace/services/lead/lead_store.dart';
+
+class _NoopDecrypt implements IncrementalDecryptRunner {
+  @override
+  Future<IncrementalDecryptResult> runIncrementalUpdate({
+    required DatabaseService databaseService,
+    required Future<void> Function() reconnectDatabase,
+    void Function(String status)? onStatus,
+    void Function(int done, int total, String fileName)? onProgress,
+    bool Function()? shouldCancel,
+  }) async {
+    return const IncrementalDecryptResult(
+      scannedCount: 0,
+      needsUpdateCount: 0,
+      updatedCount: 0,
+      failedCount: 0,
+    );
+  }
+}
 
 class _FakeAi extends AiClientService {
   @override
@@ -134,20 +153,24 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test('monitoring flag is independent of page lifecycle', () {
+  test('sync loop flag is independent of page lifecycle', () {
     final c = GroupMonitorController(
       databaseService: DatabaseService(),
+      decryptService: _NoopDecrypt(),
     );
+    expect(c.syncEnabled, isFalse);
     expect(c.monitoring, isFalse);
-    c.setMonitoring(true);
+    c.setSyncEnabled(true);
+    expect(c.syncEnabled, isTrue);
     expect(c.monitoring, isTrue);
-    c.setMonitoring(false);
-    expect(c.monitoring, isFalse);
+    c.setSyncEnabled(false);
+    expect(c.syncEnabled, isFalse);
   });
 
   test('selection persists via config', () async {
     final c = GroupMonitorController(
       databaseService: DatabaseService(),
+      decryptService: _NoopDecrypt(),
     );
     c.setSelected({'a@chatroom', 'b@chatroom'});
     await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -177,6 +200,7 @@ void main() {
       aiClient: ai,
       store: store,
       captureService: capture,
+      decryptService: _NoopDecrypt(),
     );
 
     await c.ensureBootstrapped();

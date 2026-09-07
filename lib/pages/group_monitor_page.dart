@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
+import '../services/lead/auto_sync_pipeline_logic.dart';
 import '../services/lead/group_monitor_controller.dart';
 import '../services/lead/monitor_group_selection.dart';
 import '../widgets/decrypt_required_gate.dart';
@@ -120,7 +121,7 @@ class _GroupMonitorPageState extends State<GroupMonitorPage> {
               ),
               const SizedBox(height: 8),
               Text(
-                '监控与立即抓取在后台继续运行，切换页面不会中断。',
+                '自动同步：增量解密 → 仅抓取已选群（无库变更则跳过）→ 冷却。切页不中断。',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
@@ -134,20 +135,10 @@ class _GroupMonitorPageState extends State<GroupMonitorPage> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('监控开关'),
+                      const Text('自动同步'),
                       Switch(
-                        value: c.monitoring,
-                        onChanged: c.setMonitoring,
-                      ),
-                    ],
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('自动抓取'),
-                      Switch(
-                        value: c.autoCapture,
-                        onChanged: (v) => c.setAutoCapture(v),
+                        value: c.syncEnabled,
+                        onChanged: c.setSyncEnabled,
                       ),
                     ],
                   ),
@@ -155,7 +146,7 @@ class _GroupMonitorPageState extends State<GroupMonitorPage> {
                     width: 140,
                     child: InputDecorator(
                       decoration: const InputDecoration(
-                        labelText: '间隔(秒)',
+                        labelText: '冷却(秒)',
                         isDense: true,
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(
@@ -164,13 +155,13 @@ class _GroupMonitorPageState extends State<GroupMonitorPage> {
                         ),
                       ),
                       child: TextFormField(
-                        key: ValueKey('interval-${c.intervalSeconds}'),
-                        initialValue: '${c.intervalSeconds}',
+                        key: ValueKey('cooldown-${c.cooldownSeconds}'),
+                        initialValue: '${c.cooldownSeconds}',
                         decoration:
                             const InputDecoration.collapsed(hintText: ''),
                         keyboardType: TextInputType.number,
                         onFieldSubmitted: (v) {
-                          c.setIntervalSeconds(int.tryParse(v) ?? 60);
+                          c.setCooldownSeconds(int.tryParse(v) ?? 60);
                         },
                       ),
                     ),
@@ -237,11 +228,31 @@ class _GroupMonitorPageState extends State<GroupMonitorPage> {
                           : '立即抓取已选群',
                     ),
                   ),
-                  if (c.capturing)
+                  if (c.capturing ||
+                      (c.syncEnabled &&
+                          c.phase != SyncPhase.idle &&
+                          c.phase != SyncPhase.cooldown))
                     OutlinedButton.icon(
-                      onPressed: c.cancelCapture,
+                      onPressed: () {
+                        if (c.capturing) c.cancelCapture();
+                        if (c.syncEnabled) c.cancelCurrentRound();
+                      },
                       icon: const Icon(Icons.stop),
-                      label: const Text('取消抓取'),
+                      label: Text(c.syncEnabled ? '取消本轮' : '取消抓取'),
+                    ),
+                  if (c.syncEnabled)
+                    Chip(
+                      label: Text(
+                        [
+                          syncPhaseLabel(c.phase),
+                          if (c.phase == SyncPhase.cooldown &&
+                              c.cooldownRemainingSeconds > 0)
+                            '${c.cooldownRemainingSeconds}s',
+                          if (c.estimatedRoundDuration != null)
+                            '预估≈${c.estimatedRoundDuration!.inSeconds + c.cooldownSeconds}s/轮',
+                        ].join(' · '),
+                        style: theme.textTheme.bodySmall,
+                      ),
                     ),
                   if (c.status != null)
                     ConstrainedBox(
@@ -420,15 +431,16 @@ class _GroupMonitorPageState extends State<GroupMonitorPage> {
                                     style: theme.textTheme.titleMedium,
                                   ),
                                   const Spacer(),
-                                  if (c.monitoring)
+                                  if (c.syncEnabled)
                                     Chip(
                                       avatar: Icon(
-                                        Icons.sensors,
+                                        Icons.sync,
                                         size: 16,
                                         color: theme.colorScheme.primary,
                                       ),
                                       label: Text(
-                                        '监控中 · ${c.selected.length} 群',
+                                        '同步中 · ${syncPhaseLabel(c.phase)} · '
+                                        '${c.selected.length} 群',
                                         style: theme.textTheme.bodySmall,
                                       ),
                                     ),

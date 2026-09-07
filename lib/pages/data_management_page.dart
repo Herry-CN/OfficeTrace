@@ -101,13 +101,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
   final TextEditingController _imageSearchController = TextEditingController();
   String _imageNameQuery = '';
 
-  // 增量更新定时相关
-  Timer? _autoUpdateTimer;
-  bool _isAutoUpdating = false;
-  int _autoUpdateIntervalSeconds = 30;
-  final TextEditingController _autoUpdateIntervalController =
-      TextEditingController();
-
   @override
   void initState() {
     super.initState();
@@ -116,7 +109,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
     _imageDecryptService = ImageDecryptService();
     _imageListController.addListener(_handleImageListScroll);
     _loadDatabaseFiles();
-    _autoUpdateIntervalController.text = '$_autoUpdateIntervalSeconds';
     // 触发图片扫描（如果尚未完成）
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final appState = context.read<AppState>();
@@ -133,8 +125,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
     _decryptService.dispose();
     _imageSearchController.dispose();
     _imageListController.dispose();
-    _autoUpdateTimer?.cancel();
-    _autoUpdateIntervalController.dispose();
     super.dispose();
   }
 
@@ -161,58 +151,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
     if (_imageListController.hasClients) {
       _imageListController.jumpTo(0);
     }
-  }
-
-  void _startAutoUpdate() {
-    final text = _autoUpdateIntervalController.text.trim();
-    final parsed = int.tryParse(text);
-    if (parsed == null || parsed <= 0) {
-      _showMessage('请输入有效的自动增量更新间隔（秒）', false);
-      return;
-    }
-    int seconds = parsed;
-    if (seconds < 10) {
-      seconds = 10;
-      _autoUpdateIntervalController.text = '10';
-      _showMessage('自动增量更新间隔不能小于10秒，已自动调整为10秒', false);
-    }
-    _autoUpdateIntervalSeconds = seconds;
-
-    _autoUpdateTimer?.cancel();
-    _autoUpdateTimer = Timer.periodic(
-      Duration(seconds: _autoUpdateIntervalSeconds),
-      (timer) async {
-        if (!mounted) return;
-        if (_isLoading || _isDecrypting) return;
-
-        // 静默刷新文件状态，确保检测到磁盘上的变化
-        await _loadDatabaseFiles(silent: true);
-        if (!mounted) return;
-
-        final hasUpdates =
-            _databaseFiles.any((file) => file.needsUpdate);
-        if (!hasUpdates) return;
-        await _updateChanged(fromAuto: true);
-      },
-    );
-
-    setState(() {
-      _isAutoUpdating = true;
-    });
-    _showMessage(
-      '已开启自动增量更新，间隔 $_autoUpdateIntervalSeconds 秒',
-      true,
-    );
-  }
-
-  void _stopAutoUpdate() {
-    _autoUpdateTimer?.cancel();
-    _autoUpdateTimer = null;
-    if (!_isAutoUpdating) return;
-    setState(() {
-      _isAutoUpdating = false;
-    });
-    _showMessage('已停止自动增量更新', true);
   }
 
   /// 加载数据库文件列表
@@ -2271,64 +2209,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
                   padding: const EdgeInsets.symmetric(
                     horizontal: 18,
                     vertical: 12,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-          child: Row(
-            children: [
-              Text(
-                '自动增量更新',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade700,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                width: 80,
-                child: TextField(
-                  controller: _autoUpdateIntervalController,
-                  keyboardType: TextInputType.number,
-                  enabled: !_isAutoUpdating && !_isDecrypting && !_isLoading,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    border: OutlineInputBorder(),
-                    hintText: '间隔(秒)',
-                  ),
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ),
-              const SizedBox(width: 12),
-              ElevatedButton.icon(
-                onPressed: (_isLoading || _isDecrypting)
-                    ? null
-                    : _isAutoUpdating
-                        ? _stopAutoUpdate
-                        : _startAutoUpdate,
-                icon: Icon(
-                  _isAutoUpdating
-                      ? Icons.pause_circle_filled
-                      : Icons.play_circle_fill,
-                  size: 18,
-                ),
-                label:
-                    Text(_isAutoUpdating ? '停止自动更新' : '启动自动更新'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      _isAutoUpdating ? Colors.grey.shade600 : _updateColor,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
                   ),
                 ),
               ),
