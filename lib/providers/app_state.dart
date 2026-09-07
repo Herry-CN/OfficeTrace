@@ -10,6 +10,7 @@ import '../services/app_path_service.dart';
 import '../services/logger_service.dart';
 import '../services/voice_message_service.dart';
 import '../services/bulk_worker_pool.dart';
+import '../services/lead/group_monitor_controller.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -42,6 +43,10 @@ class AppState extends ChangeNotifier {
   final ConfigService configService = ConfigService();
   late final VoiceMessageService voiceService =
       VoiceMessageService(databaseService);
+  late final GroupMonitorController groupMonitor = GroupMonitorController(
+    databaseService: databaseService,
+    configService: configService,
+  );
 
   BulkJobHandle? _activeBulkJob;
 

@@ -50,12 +50,17 @@ class LeadCaptureService {
   }
 
   /// 对多个群按分析时窗抓取近期消息中的商机，返回新增条数。
+  ///
+  /// [onProgress] 每完成一个群回调；[shouldCancel] 返回 true 时提前结束。
+  /// 每群处理后让出事件循环，避免大批量时 UI 假死。
   Future<int> captureGroups({
     required DatabaseService database,
     required List<ChatSession> groups,
     int? analysisHours,
     double? confidenceThreshold,
-    int messageLimit = 120,
+    int messageLimit = 80,
+    void Function(int done, int total, String currentName)? onProgress,
+    bool Function()? shouldCancel,
   }) async {
     if (groups.isEmpty) return 0;
     await aiClient.loadFromConfig();
@@ -67,10 +72,14 @@ class LeadCaptureService {
     final pipeline = LeadPipelineService(aiClient: aiClient, store: store);
 
     var total = 0;
-    for (final group in groups) {
+    for (var i = 0; i < groups.length; i++) {
+      if (shouldCancel?.call() == true) break;
+      final group = groups[i];
       final chatName = group.displayName?.isNotEmpty == true
           ? group.displayName!
           : group.username;
+      onProgress?.call(i, groups.length, chatName);
+
       final messages = await database.getMessages(
         group.username,
         limit: messageLimit,
@@ -81,13 +90,17 @@ class LeadCaptureService {
           .where((m) => m.displayContent.trim().isNotEmpty)
           .map(messageToLeadChat)
           .toList();
-      if (input.isEmpty) continue;
-      final created = await pipeline.generateFromChat(
-        input,
-        chatName,
-        confidenceThreshold: threshold,
-      );
-      total += created.length;
+      if (input.isNotEmpty) {
+        final created = await pipeline.generateFromChat(
+          input,
+          chatName,
+          confidenceThreshold: threshold,
+        );
+        total += created.length;
+      }
+      onProgress?.call(i + 1, groups.length, chatName);
+      // 让出 UI 线程，避免连续同步/密集 await 造成假死感
+      await Future<void>.delayed(Duration.zero);
     }
     return total;
   }
