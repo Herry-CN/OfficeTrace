@@ -22,6 +22,17 @@ void main() {
       expect(signals.score, greaterThan(0.5));
     });
 
+    test('detectBusinessSignals ignores bare 资源/老师 without intent', () {
+      final weak = pipeline.detectBusinessSignals('资源不错，老师也很好');
+      expect(weak.labels, isEmpty);
+      expect(weak.isRelevant, isFalse);
+    });
+
+    test('detectBusinessSignals finds intentful resource request', () {
+      final signals = pipeline.detectBusinessSignals('找资源对接仓储物流渠道');
+      expect(signals.labels, contains('resource'));
+    });
+
     test('buildBusinessSegments splits on large time gap', () {
       final now = DateTime(2026, 4, 4, 10).millisecondsSinceEpoch;
       final msgs = pipeline.normalizeBusinessMessages([

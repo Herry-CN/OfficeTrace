@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import '../../models/lead.dart';
 import '../app_path_service.dart';
+import 'lead_capture_rules.dart';
 
 /// 商机持久化：应用文档目录下 LeadTrace/leads.json
 class LeadStore {
@@ -61,22 +62,37 @@ class LeadStore {
   Future<Lead> create(Map<String, dynamic> data) async {
     await ensureLoaded();
     final now = DateTime.now();
+    final title = data['title']?.toString() ?? '';
+    final description = data['description']?.toString() ?? '';
+    final sender = data['sender']?.toString();
+    final messageTime = data['messageTime']?.toString();
+    final messageId = data['messageId']?.toString();
+    final fingerprint = data['fingerprint']?.toString() ??
+        LeadCaptureRules.contentFingerprint(
+          title: title,
+          description: description,
+          sender: sender,
+          messageTime: messageTime,
+          messageId: messageId,
+        );
     final lead = Lead(
       id: _newId(),
-      title: data['title']?.toString() ?? '',
-      description: data['description']?.toString() ?? '',
+      title: title,
+      description: description,
       priority: data['priority']?.toString() ?? 'medium',
       dueDate: data['dueDate']?.toString(),
       completed: false,
       source: data['source']?.toString() ?? 'manual',
       sourceMessage: data['sourceMessage']?.toString(),
       groupName: data['groupName']?.toString(),
-      sender: data['sender']?.toString(),
-      messageTime: data['messageTime']?.toString(),
+      sender: sender,
+      messageTime: messageTime,
       category: data['category']?.toString(),
       confidence: data['confidence'] is num
           ? (data['confidence'] as num).toDouble()
           : double.tryParse(data['confidence']?.toString() ?? ''),
+      fingerprint: fingerprint,
+      messageId: messageId,
       createdAt: now,
       updatedAt: now,
     );
@@ -145,19 +161,29 @@ class LeadStore {
   }
 
   bool isDuplicateOfExisting(Map<String, dynamic> candidate, String? chatName) {
+    final cTitle = candidate['title']?.toString();
+    final cDesc = candidate['description']?.toString();
+    final cSender = candidate['sender']?.toString();
+    final cTime = candidate['messageTime']?.toString();
+    final cFp = candidate['fingerprint']?.toString();
+    final cMid = candidate['messageId']?.toString();
+
     for (final existing in _leads) {
       if (existing.groupName != chatName) continue;
-      if (candidate['messageTime'] != null &&
-          candidate['sender'] != null &&
-          existing.messageTime == candidate['messageTime'] &&
-          existing.sender == candidate['sender']) {
-        return true;
-      }
-      if (existing.title == candidate['title']) return true;
-      final desc = candidate['description']?.toString() ?? '';
-      if (desc.length > 10 &&
-          existing.description.length > 10 &&
-          jaccardSimilarity(desc, existing.description) > 0.8) {
+      if (LeadCaptureRules.isNearDuplicateCandidate(
+        leftTitle: existing.title,
+        leftDescription: existing.description,
+        leftSender: existing.sender,
+        leftMessageTime: existing.messageTime,
+        leftFingerprint: existing.fingerprint,
+        leftMessageId: existing.messageId,
+        rightTitle: cTitle,
+        rightDescription: cDesc,
+        rightSender: cSender,
+        rightMessageTime: cTime,
+        rightFingerprint: cFp,
+        rightMessageId: cMid,
+      )) {
         return true;
       }
     }
@@ -204,14 +230,8 @@ class LeadStore {
     return '${millis.toRadixString(16)}-${rand.nextInt(1 << 32).toRadixString(16)}';
   }
 
-  /// 字符级 Jaccard，供 pipeline / 测试复用
+  /// 字符级 Jaccard（兼容旧测试）；新去重请用 [LeadCaptureRules.bigramJaccard]。
   static double jaccardSimilarity(String str1, String str2) {
-    if (str1.isEmpty || str2.isEmpty) return 0;
-    final s1 = str1.split('').toSet();
-    final s2 = str2.split('').toSet();
-    final intersection = s1.intersection(s2).length;
-    final union = s1.union(s2).length;
-    if (union == 0) return 0;
-    return intersection / union;
+    return LeadCaptureRules.bigramJaccard(str1, str2);
   }
 }

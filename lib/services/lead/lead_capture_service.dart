@@ -5,6 +5,7 @@ import '../config_service.dart';
 import '../database_service.dart';
 import 'ai_client_service.dart';
 import 'auto_sync_pipeline_logic.dart';
+import 'lead_capture_rules.dart';
 import 'lead_pipeline_service.dart';
 import 'lead_store.dart';
 
@@ -35,6 +36,15 @@ class LeadCaptureService {
   final LeadStore store;
   final ConfigService _config;
 
+  /// 默认可抓文本消息；排除系统/媒体占位，降低错抓。
+  static bool isCapturableMessage(Message m) {
+    if (m.isSystemLike) return false;
+    if (m.isImageMessage || m.isVoiceMessage || m.isVideoMessage) {
+      return false;
+    }
+    return LeadCaptureRules.isCapturableText(m.displayContent);
+  }
+
   LeadChatMessage messageToLeadChat(Message m) {
     return LeadChatMessage(
       id: m.localId.toString(),
@@ -54,7 +64,7 @@ class LeadCaptureService {
         confidenceThreshold ?? await _config.getConfidenceThreshold();
     final pipeline = LeadPipelineService(aiClient: aiClient, store: store);
     final input = messages
-        .where((m) => m.displayContent.trim().isNotEmpty)
+        .where(isCapturableMessage)
         .map(messageToLeadChat)
         .toList();
     if (input.isEmpty) return [];
@@ -68,19 +78,18 @@ class LeadCaptureService {
   /// 对多个群按分析时窗抓取近期消息中的商机。
   ///
   /// 默认跳过相对上次抓取水位无新消息的群；[forceAll]=true 时强制全抓。
-  /// [onProgress] 每完成一个群回调；[shouldCancel] 返回 true 时提前结束。
   Future<CaptureGroupsResult> captureGroups({
     required DatabaseService database,
     required List<ChatSession> groups,
     int? analysisHours,
     double? confidenceThreshold,
-    int messageLimit = 80,
+    int messageLimit = 120,
     bool forceAll = false,
     void Function(int done, int total, String currentName)? onProgress,
     bool Function()? shouldCancel,
   }) async {
     if (groups.isEmpty) {
-      return const CaptureGroupsResult(
+      return CaptureGroupsResult(
         createdCount: 0,
         processedGroups: 0,
         skippedUnchanged: 0,
@@ -142,11 +151,12 @@ class LeadCaptureService {
         continue;
       }
 
-      final input = messages
-          .where((m) => m.createTime >= cutoffSec)
-          .where((m) => m.displayContent.trim().isNotEmpty)
-          .map(messageToLeadChat)
-          .toList();
+      final input = selectMessagesForPipeline(
+        messages: messages,
+        cutoffSec: cutoffSec,
+        lastWatermark: lastWm,
+      );
+
       if (input.isNotEmpty) {
         final created = await pipeline.generateFromChat(
           input,
@@ -156,6 +166,7 @@ class LeadCaptureService {
         createdTotal += created.length;
       }
 
+      // 仅在本群处理完成后推进水位，避免中途失败导致漏抓
       if (maxCreateTime != null) {
         watermarks[group.username] = maxCreateTime;
         watermarksDirty = true;
@@ -175,4 +186,45 @@ class LeadCaptureService {
       skippedUnchanged: skipped,
     );
   }
+
+  /// 时窗内可抓文本；有水位时以新消息为主，并带少量旧消息作上下文，降低漏抓。
+  static List<LeadChatMessage> selectMessagesForPipeline({
+    required List<Message> messages,
+    required int cutoffSec,
+    int? lastWatermark,
+    int contextLimit = 15,
+  }) {
+    final inWindow = messages
+        .where((m) => m.createTime >= cutoffSec)
+        .where(isCapturableMessage)
+        .toList()
+      ..sort((a, b) => a.createTime.compareTo(b.createTime));
+
+    if (inWindow.isEmpty) return const [];
+
+    if (lastWatermark == null) {
+      return inWindow.map(_toLeadChat).toList();
+    }
+
+    final newer =
+        inWindow.where((m) => m.createTime > lastWatermark).toList();
+    if (newer.isEmpty) {
+      // 水位未跳过时可能因 session 时间不准走到这里：仍扫全窗，靠去重防重复
+      return inWindow.map(_toLeadChat).toList();
+    }
+
+    final older =
+        inWindow.where((m) => m.createTime <= lastWatermark).toList();
+    final context = older.length <= contextLimit
+        ? older
+        : older.sublist(older.length - contextLimit);
+    return [...context, ...newer].map(_toLeadChat).toList();
+  }
+
+  static LeadChatMessage _toLeadChat(Message m) => LeadChatMessage(
+        id: m.localId.toString(),
+        sender: m.senderUsername,
+        content: m.displayContent,
+        timestampMs: m.createTime * 1000,
+      );
 }

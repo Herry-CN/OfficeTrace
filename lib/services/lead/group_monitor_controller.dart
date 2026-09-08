@@ -518,7 +518,7 @@ class GroupMonitorController extends ChangeNotifier {
         groups: targets,
         analysisHours: _analysisHours,
         confidenceThreshold: _confidenceThreshold,
-        messageLimit: 80,
+        messageLimit: 120,
         shouldCancel: () => _cancelCapture || !_syncEnabled || _cancelRound,
         onProgress: (done, totalCount, name) {
           _captureDone = done;
@@ -598,7 +598,7 @@ class GroupMonitorController extends ChangeNotifier {
         groups: targets,
         analysisHours: _analysisHours,
         confidenceThreshold: _confidenceThreshold,
-        messageLimit: 80,
+        messageLimit: 120,
         shouldCancel: () => _cancelCapture,
         onProgress: (done, totalCount, name) {
           _captureDone = done;

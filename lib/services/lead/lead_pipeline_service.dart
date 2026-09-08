@@ -1,5 +1,6 @@
 import '../../models/lead.dart';
 import 'ai_client_service.dart';
+import 'lead_capture_rules.dart';
 import 'lead_store.dart';
 
 /// 群聊商机抓取流水线：分段 → 分类 → 提取 → 阈值 → 去重 → 落库
@@ -72,9 +73,12 @@ class LeadPipelineService {
         firstBatchError ??= e;
       }
 
-      final shouldExtract = ruleTodos.isNotEmpty ||
-          (classification.label != 'irrelevant' &&
-              classification.confidence >= 0.45);
+      final shouldExtract = LeadCaptureRules.shouldExtractSegment(
+        hasRuleTodos: ruleTodos.isNotEmpty,
+        label: classification.label,
+        confidence: classification.confidence,
+        aiShouldExtract: classification.shouldExtract,
+      );
 
       var aiItems = <Map<String, dynamic>>[];
       if (shouldExtract) {
@@ -89,8 +93,9 @@ class LeadPipelineService {
                     ...todo,
                     'sourceMessage': segment.chatContent,
                     'segmentIndex': i,
-                    'segmentSummary':
-                        result.summary.isNotEmpty ? result.summary : classification.summary,
+                    'segmentSummary': result.summary.isNotEmpty
+                        ? result.summary
+                        : classification.summary,
                   })
               .toList();
           if (result.summary.isNotEmpty) {
@@ -110,7 +115,13 @@ class LeadPipelineService {
             mergeRollingSummary(previousSummary, classification.summary);
       }
 
-      final merged = mergeLeadCandidates([...aiItems, ...ruleTodos]);
+      final gated = LeadCaptureRules.gateRuleAgainstAi(
+        aiItems: aiItems,
+        ruleTodos: ruleTodos,
+        aiLabel: classification.label,
+        aiConfidence: classification.confidence,
+      );
+      final merged = mergeLeadCandidates(gated);
       extracted.addAll(merged);
     }
 
@@ -134,14 +145,25 @@ class LeadPipelineService {
     await store.ensureLoaded();
     final created = <Lead>[];
     for (final todoData in filtered) {
-      if (store.isDuplicateOfExisting(todoData, chatName)) {
+      final withFp = {
+        ...todoData,
+        'fingerprint': todoData['fingerprint'] ??
+            LeadCaptureRules.contentFingerprint(
+              title: todoData['title']?.toString(),
+              description: todoData['description']?.toString(),
+              sender: todoData['sender']?.toString(),
+              messageTime: todoData['messageTime']?.toString(),
+              messageId: todoData['messageId']?.toString(),
+            ),
+      };
+      if (store.isDuplicateOfExisting(withFp, chatName)) {
         continue;
       }
       final lead = await store.create({
-        ...todoData,
+        ...withFp,
         'groupName': chatName,
         'source': 'ai-generated',
-        'sourceMessage': todoData['sourceMessage'],
+        'sourceMessage': withFp['sourceMessage'],
       });
       created.add(lead);
     }
@@ -153,6 +175,7 @@ class LeadPipelineService {
   ) {
     final result = <_NormalizedMessage>[];
     for (final m in messages) {
+      if (!LeadCaptureRules.isCapturableText(m.content)) continue;
       var ts = m.timestampMs;
       if (ts < 1000000000000) ts *= 1000;
       final timeStr = _formatZhTime(DateTime.fromMillisecondsSinceEpoch(ts));
@@ -161,6 +184,7 @@ class LeadPipelineService {
       final messageLine = '[$timeStr] [$sender]: $content';
       final signals = detectBusinessSignals(content);
       result.add(_NormalizedMessage(
+        id: m.id,
         sender: sender.isEmpty ? null : sender,
         content: content,
         timestamp: ts,
@@ -175,29 +199,39 @@ class LeadPipelineService {
 
   BusinessSignals detectBusinessSignals(String content) {
     final text = content;
+    // 收紧：避免「资源/老师/顾问」日常闲聊误标
     final labelPatterns = <({String label, RegExp regex, double score})>[
       (
         label: 'recruitment',
-        regex: RegExp(r'(招聘|诚聘|急招|猎头|岗位|任职要求|JD|薪资|简历)', caseSensitive: false),
+        regex: RegExp(
+          r'(招聘|诚聘|急招|猎头|岗位|任职要求|JD|薪资|简历)',
+          caseSensitive: false,
+        ),
         score: 1,
       ),
       (
         label: 'procurement',
-        regex: RegExp(r'(求购|采购|寻购|供应商|报价|预算|询价)', caseSensitive: false),
+        regex: RegExp(
+          r'(求购|采购|寻购|找供应商|询价|报价|预算)',
+          caseSensitive: false,
+        ),
         score: 1,
       ),
       (
         label: 'resource',
         regex: RegExp(
-          r'(资源|渠道|合作方|合作伙伴|服务商|仓储|物流|财务|法务|保险|场地)',
+          r'(找资源|寻找资源|找渠道|寻找渠道|找合作|寻找合作|找服务商|找仓储|找物流|找场地)',
           caseSensitive: false,
         ),
         score: 0.9,
       ),
       (
         label: 'expert',
-        regex: RegExp(r'(老师|专家|顾问|咨询服务|咨询老师|咨询专家)', caseSensitive: false),
-        score: 0.8,
+        regex: RegExp(
+          r'(找老师|找专家|找顾问|需要顾问|咨询老师|咨询专家|咨询服务)',
+          caseSensitive: false,
+        ),
+        score: 0.85,
       ),
     ];
 
@@ -209,7 +243,7 @@ class LeadPipelineService {
         score += pattern.score;
       }
     }
-    if (RegExp(r'(微信|电话|联系|私聊|vx|V:|☎|手机)', caseSensitive: false)
+    if (RegExp(r'(微信|电话|联系|私聊|vx|V:|☎|手机号?)', caseSensitive: false)
         .hasMatch(text)) {
       score += 0.2;
     }
@@ -334,13 +368,24 @@ class LeadPipelineService {
     final merged = <Map<String, dynamic>>[];
     for (final item in items) {
       if (item['title'] == null) continue;
-      final currentConfidence = item['confidence'] is num
-          ? (item['confidence'] as num).toDouble()
+      final enriched = {
+        ...item,
+        'fingerprint': item['fingerprint'] ??
+            LeadCaptureRules.contentFingerprint(
+              title: item['title']?.toString(),
+              description: item['description']?.toString(),
+              sender: item['sender']?.toString(),
+              messageTime: item['messageTime']?.toString(),
+              messageId: item['messageId']?.toString(),
+            ),
+      };
+      final currentConfidence = enriched['confidence'] is num
+          ? (enriched['confidence'] as num).toDouble()
           : 0.8;
       final existingIndex =
-          merged.indexWhere((c) => isDuplicateLeadCandidate(c, item));
+          merged.indexWhere((c) => isDuplicateLeadCandidate(c, enriched));
       if (existingIndex < 0) {
-        merged.add(Map<String, dynamic>.from(item));
+        merged.add(Map<String, dynamic>.from(enriched));
         continue;
       }
       final existing = merged[existingIndex];
@@ -348,7 +393,7 @@ class LeadPipelineService {
           ? (existing['confidence'] as num).toDouble()
           : 0.8;
       if (currentConfidence > existingConfidence) {
-        merged[existingIndex] = Map<String, dynamic>.from(item);
+        merged[existingIndex] = Map<String, dynamic>.from(enriched);
       }
     }
     return merged;
@@ -358,25 +403,20 @@ class LeadPipelineService {
     Map<String, dynamic> left,
     Map<String, dynamic> right,
   ) {
-    if (left['messageTime'] != null &&
-        right['messageTime'] != null &&
-        left['sender'] != null &&
-        right['sender'] != null &&
-        left['messageTime'] == right['messageTime'] &&
-        left['sender'] == right['sender']) {
-      return true;
-    }
-    if (left['title'] != null &&
-        right['title'] != null &&
-        left['title'] == right['title']) {
-      return true;
-    }
-    final ld = left['description']?.toString();
-    final rd = right['description']?.toString();
-    if (ld != null && rd != null) {
-      return LeadStore.jaccardSimilarity(ld, rd) > 0.82;
-    }
-    return false;
+    return LeadCaptureRules.isNearDuplicateCandidate(
+      leftTitle: left['title']?.toString(),
+      leftDescription: left['description']?.toString(),
+      leftSender: left['sender']?.toString(),
+      leftMessageTime: left['messageTime']?.toString(),
+      leftFingerprint: left['fingerprint']?.toString(),
+      leftMessageId: left['messageId']?.toString(),
+      rightTitle: right['title']?.toString(),
+      rightDescription: right['description']?.toString(),
+      rightSender: right['sender']?.toString(),
+      rightMessageTime: right['messageTime']?.toString(),
+      rightFingerprint: right['fingerprint']?.toString(),
+      rightMessageId: right['messageId']?.toString(),
+    );
   }
 
   List<Map<String, dynamic>> fallbackExtractImportantMessages(
@@ -387,7 +427,7 @@ class LeadPipelineService {
 
     for (final m in messages) {
       final content = m.content.trim();
-      if (content.isEmpty) continue;
+      if (!LeadCaptureRules.isCapturableText(content)) continue;
       String? title;
       var priority = 'medium';
       String? category;
@@ -410,14 +450,16 @@ class LeadPipelineService {
           RegExp(r'(找资源|寻找资源|找渠道|找合作|找场地)'),
         );
         category = 'resource';
-        confidence = 0.82;
-      } else if (RegExp(r'(找老师|找专家|咨询老师|咨询专家|顾问)').hasMatch(content)) {
+        // 略低于默认阈值 0.75 时仍可过；弱于招聘/求购，减少闲聊误抓
+        confidence = 0.78;
+      } else if (RegExp(r'(找老师|找专家|咨询老师|咨询专家|找顾问|需要顾问)')
+          .hasMatch(content)) {
         title = extractTitleFromContent(
           content,
-          RegExp(r'(找老师|找专家|咨询老师|咨询专家|顾问)'),
+          RegExp(r'(找老师|找专家|咨询老师|咨询专家|找顾问|需要顾问)'),
         );
         category = 'expert';
-        confidence = 0.8;
+        confidence = 0.76;
       }
 
       if (title == null) continue;
@@ -433,8 +475,16 @@ class LeadPipelineService {
         'dueDate': null,
         'sender': m.sender,
         'messageTime': m.timeStr,
+        'messageId': m.id,
         'category': category,
         'confidence': confidence,
+        'fingerprint': LeadCaptureRules.contentFingerprint(
+          title: title,
+          description: content,
+          sender: m.sender,
+          messageTime: m.timeStr,
+          messageId: m.id,
+        ),
       });
     }
     return results;
@@ -475,6 +525,7 @@ class BusinessSignals {
 }
 
 class _NormalizedMessage {
+  final String? id;
   final String? sender;
   final String content;
   final int timestamp;
@@ -483,6 +534,7 @@ class _NormalizedMessage {
   final BusinessSignals signals;
 
   _NormalizedMessage({
+    this.id,
     required this.sender,
     required this.content,
     required this.timestamp,

@@ -13,6 +13,10 @@ class Lead {
   final String? messageTime;
   final String? category; // recruitment | procurement | resource | expert
   final double? confidence;
+  /// 稳定去重指纹（可选，旧数据可为空）。
+  final String? fingerprint;
+  /// 源消息 localId（可选）。
+  final String? messageId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -30,6 +34,8 @@ class Lead {
     this.messageTime,
     this.category,
     this.confidence,
+    this.fingerprint,
+    this.messageId,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -48,6 +54,8 @@ class Lead {
     String? messageTime,
     String? category,
     double? confidence,
+    String? fingerprint,
+    String? messageId,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -65,6 +73,8 @@ class Lead {
       messageTime: messageTime ?? this.messageTime,
       category: category ?? this.category,
       confidence: confidence ?? this.confidence,
+      fingerprint: fingerprint ?? this.fingerprint,
+      messageId: messageId ?? this.messageId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -84,6 +94,8 @@ class Lead {
         'messageTime': messageTime,
         'category': category,
         'confidence': confidence,
+        'fingerprint': fingerprint,
+        'messageId': messageId,
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
       };
@@ -116,6 +128,8 @@ class Lead {
       messageTime: json['messageTime']?.toString(),
       category: json['category']?.toString(),
       confidence: parseConfidence(json['confidence']),
+      fingerprint: json['fingerprint']?.toString(),
+      messageId: json['messageId']?.toString(),
       createdAt: parseTime(json['createdAt']),
       updatedAt: parseTime(json['updatedAt']),
     );
