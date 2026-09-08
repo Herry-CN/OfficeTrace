@@ -1,4 +1,6 @@
 // 配置服务：通过 SharedPreferences 持久化密钥、数据库路径、模式与调试开关
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'config_migration.dart';
@@ -40,6 +42,7 @@ class ConfigService {
   static const String _keyMonitorIntervalSeconds = 'monitor_interval_seconds';
   static const String _keyMonitorAutoCapture = 'monitor_auto_capture';
   static const String _keyMonitorSelectedGroups = 'monitor_selected_groups';
+  static const String _keyCaptureWatermarks = 'lead_capture_watermarks';
 
   /// 保存解密密钥
   Future<void> saveDecryptKey(String key) async {
@@ -338,6 +341,33 @@ class ConfigService {
     return prefs.getStringList(_keyMonitorSelectedGroups) ?? const [];
   }
 
+  /// 各群上次抓取时见到的最大消息 createTime（秒）。
+  Future<Map<String, int>> getCaptureWatermarks() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_keyCaptureWatermarks);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return {};
+      final out = <String, int>{};
+      decoded.forEach((key, value) {
+        final id = key.toString();
+        final t = value is int
+            ? value
+            : int.tryParse(value?.toString() ?? '');
+        if (id.isNotEmpty && t != null) out[id] = t;
+      });
+      return out;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> saveCaptureWatermarks(Map<String, int> watermarks) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyCaptureWatermarks, jsonEncode(watermarks));
+  }
+
   /// 清除所有配置
   Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
@@ -364,5 +394,6 @@ class ConfigService {
     await prefs.remove(_keyMonitorIntervalSeconds);
     await prefs.remove(_keyMonitorAutoCapture);
     await prefs.remove(_keyMonitorSelectedGroups);
+    await prefs.remove(_keyCaptureWatermarks);
   }
 }

@@ -19,6 +19,30 @@ CaptureDecision decideCaptureAfterDecrypt({
   return CaptureDecision.captureSelected;
 }
 
+/// 对比前次抓取水位：当前最新消息时间未前进则跳过该群。
+///
+/// [lastCapturedMaxCreateTime] 为空表示从未抓取过 → 不跳过（首次抓取）。
+/// [currentMaxCreateTime] 为空表示无消息 → 跳过。
+bool shouldSkipUnchangedGroupCapture({
+  required int? lastCapturedMaxCreateTime,
+  required int? currentMaxCreateTime,
+}) {
+  if (currentMaxCreateTime == null) return true;
+  if (lastCapturedMaxCreateTime == null) return false;
+  return currentMaxCreateTime <= lastCapturedMaxCreateTime;
+}
+
+/// 用会话 [lastTimestamp] 做廉价预判（无需拉消息）。
+/// 无法判断时返回 false（交给消息级确认）。
+bool shouldSkipBySessionTimestamp({
+  required int? lastCapturedMaxCreateTime,
+  required int sessionLastTimestamp,
+}) {
+  if (lastCapturedMaxCreateTime == null) return false;
+  if (sessionLastTimestamp <= 0) return false;
+  return sessionLastTimestamp <= lastCapturedMaxCreateTime;
+}
+
 /// 管线阶段（UI 展示用）。
 enum SyncPhase {
   idle,

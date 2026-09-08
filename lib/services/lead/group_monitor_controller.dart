@@ -179,6 +179,32 @@ class GroupMonitorController extends ChangeNotifier {
     await ensureBootstrapped();
   }
 
+  /// 刷新群列表元数据（含 lastTimestamp），保留内存中的已选集合。
+  Future<void> refreshGroupMetadata() async {
+    if (!databaseService.isConnected) return;
+    try {
+      final fresh = await databaseService.getSessions(
+        groupsOnly: true,
+        enrichNames: false,
+      );
+      final keepSelected = Set<String>.from(_selected);
+      final keepMissing = Set<String>.from(_missingImported);
+      _groups = fresh;
+      final known = _groups.map((g) => g.username).toSet();
+      _selected
+        ..clear()
+        ..addAll(keepSelected.where(known.contains));
+      _missingImported
+        ..clear()
+        ..addAll({
+          ...keepMissing,
+          ...keepSelected.where((id) => !known.contains(id)),
+        });
+      unawaited(_enrichNamesInBackground());
+      notifyListeners();
+    } catch (_) {}
+  }
+
   void setSelected(Set<String> next, {Iterable<String> missing = const []}) {
     _selected
       ..clear()
@@ -465,6 +491,8 @@ class GroupMonitorController extends ChangeNotifier {
   }
 
   Future<void> _captureSelectedInPipeline() async {
+    // 解密后刷新会话时间戳，便于按 lastTimestamp 廉价跳过无变化群
+    await refreshGroupMetadata();
     final targets = selectedSessions;
     if (targets.isEmpty) return;
     if (!databaseService.isConnected) {
@@ -482,10 +510,10 @@ class GroupMonitorController extends ChangeNotifier {
     _captureCurrentName = null;
     _status = '抓取已选群 0/${targets.length}…';
     notifyListeners();
-    pushEvent('${_ts()} · 开始抓取已选 ${targets.length} 个群');
+    pushEvent('${_ts()} · 开始抓取已选 ${targets.length} 个群（仅有新消息的群）');
 
     try {
-      final total = await _capture.captureGroups(
+      final result = await _capture.captureGroups(
         database: databaseService,
         groups: targets,
         analysisHours: _analysisHours,
@@ -501,13 +529,28 @@ class GroupMonitorController extends ChangeNotifier {
         },
       );
       if (_cancelCapture || _cancelRound || !_syncEnabled) {
-        _status = '本轮抓取已取消（新增 $total 条）';
-        pushEvent('${_ts()} · 抓取已取消 · 新增 $total 条');
+        _status =
+            '本轮抓取已取消（新增 ${result.createdCount} 条，跳过 ${result.skippedUnchanged} 群）';
+        pushEvent(
+          '${_ts()} · 抓取已取消 · 新增 ${result.createdCount} · '
+          '处理 ${result.processedGroups} · 跳过 ${result.skippedUnchanged}',
+        );
+      } else if (result.processedGroups == 0 && result.skippedUnchanged > 0) {
+        _status = '已选群均无新消息，已跳过抓取';
+        pushEvent(
+          '${_ts()} · 已选群均无新消息，跳过 AI 抓取 '
+          '（${result.skippedUnchanged} 群）',
+        );
       } else {
-        _status = total > 0
-            ? '抓取完成，新增 $total 条商机'
-            : '未发现新商机（可能已去重或低于置信度）';
-        pushEvent('${_ts()} · 抓取完成 · 新增 $total 条');
+        _status = result.createdCount > 0
+            ? '抓取完成，新增 ${result.createdCount} 条商机'
+                '（处理 ${result.processedGroups}，跳过 ${result.skippedUnchanged}）'
+            : '未发现新商机（处理 ${result.processedGroups}，'
+                '跳过 ${result.skippedUnchanged}）';
+        pushEvent(
+          '${_ts()} · 抓取完成 · 新增 ${result.createdCount} · '
+          '处理 ${result.processedGroups} · 跳过 ${result.skippedUnchanged}',
+        );
       }
     } catch (e) {
       _phase = SyncPhase.error;
@@ -550,7 +593,7 @@ class GroupMonitorController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final total = await _capture.captureGroups(
+      final result = await _capture.captureGroups(
         database: databaseService,
         groups: targets,
         analysisHours: _analysisHours,
@@ -566,13 +609,27 @@ class GroupMonitorController extends ChangeNotifier {
         },
       );
       if (_cancelCapture) {
-        _status = '已取消立即抓取（已完成 $_captureDone/$_captureTotal，新增 $total 条）';
-        pushEvent('${_ts()} · 立即抓取已取消 · 新增 $total 条');
+        _status =
+            '已取消立即抓取（已完成 $_captureDone/$_captureTotal，'
+            '新增 ${result.createdCount} 条）';
+        pushEvent(
+          '${_ts()} · 立即抓取已取消 · 新增 ${result.createdCount} 条',
+        );
+      } else if (result.processedGroups == 0 && result.skippedUnchanged > 0) {
+        _status = '已选群均无新消息，已跳过抓取';
+        pushEvent(
+          '${_ts()} · 立即抓取 · 均无新消息，跳过 '
+          '（${result.skippedUnchanged} 群）',
+        );
       } else {
-        _status = total > 0
-            ? '立即抓取完成，新增 $total 条商机'
-            : '未发现新商机（可能已去重或低于置信度）';
-        pushEvent('${_ts()} · 立即抓取完成 · 新增 $total 条');
+        _status = result.createdCount > 0
+            ? '立即抓取完成，新增 ${result.createdCount} 条商机'
+                '（跳过无变化 ${result.skippedUnchanged}）'
+            : '未发现新商机（跳过无变化 ${result.skippedUnchanged}）';
+        pushEvent(
+          '${_ts()} · 立即抓取完成 · 新增 ${result.createdCount} · '
+          '跳过 ${result.skippedUnchanged}',
+        );
       }
     } catch (e) {
       _status = '立即抓取失败: $e';

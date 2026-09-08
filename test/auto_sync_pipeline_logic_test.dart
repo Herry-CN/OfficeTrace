@@ -40,4 +40,75 @@ void main() {
       expect(syncPhaseLabel(phase), isNotEmpty);
     }
   });
+
+  group('shouldSkipUnchangedGroupCapture', () {
+    test('first capture never skips when messages exist', () {
+      expect(
+        shouldSkipUnchangedGroupCapture(
+          lastCapturedMaxCreateTime: null,
+          currentMaxCreateTime: 100,
+        ),
+        isFalse,
+      );
+    });
+
+    test('no messages → skip', () {
+      expect(
+        shouldSkipUnchangedGroupCapture(
+          lastCapturedMaxCreateTime: 50,
+          currentMaxCreateTime: null,
+        ),
+        isTrue,
+      );
+    });
+
+    test('unchanged or older → skip', () {
+      expect(
+        shouldSkipUnchangedGroupCapture(
+          lastCapturedMaxCreateTime: 100,
+          currentMaxCreateTime: 100,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldSkipUnchangedGroupCapture(
+          lastCapturedMaxCreateTime: 100,
+          currentMaxCreateTime: 99,
+        ),
+        isTrue,
+      );
+    });
+
+    test('newer messages → capture', () {
+      expect(
+        shouldSkipUnchangedGroupCapture(
+          lastCapturedMaxCreateTime: 100,
+          currentMaxCreateTime: 101,
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('shouldSkipBySessionTimestamp', () {
+    test('session not advanced → skip', () {
+      expect(
+        shouldSkipBySessionTimestamp(
+          lastCapturedMaxCreateTime: 200,
+          sessionLastTimestamp: 200,
+        ),
+        isTrue,
+      );
+    });
+
+    test('session advanced → do not skip', () {
+      expect(
+        shouldSkipBySessionTimestamp(
+          lastCapturedMaxCreateTime: 200,
+          sessionLastTimestamp: 201,
+        ),
+        isFalse,
+      );
+    });
+  });
 }

@@ -40,18 +40,23 @@ class _CountingCapture extends LeadCaptureService {
   int captureGroupsCalls = 0;
 
   @override
-  Future<int> captureGroups({
+  Future<CaptureGroupsResult> captureGroups({
     required DatabaseService database,
     required List<ChatSession> groups,
     int? analysisHours,
     double? confidenceThreshold,
     int messageLimit = 80,
+    bool forceAll = false,
     void Function(int done, int total, String currentName)? onProgress,
     bool Function()? shouldCancel,
   }) async {
     captureGroupsCalls++;
     onProgress?.call(groups.length, groups.length, 'done');
-    return 0;
+    return CaptureGroupsResult(
+      createdCount: 0,
+      processedGroups: groups.length,
+      skippedUnchanged: 0,
+    );
   }
 }
 
