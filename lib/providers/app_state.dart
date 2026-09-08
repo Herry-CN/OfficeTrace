@@ -555,6 +555,10 @@ class AppState extends ChangeNotifier {
 
   /// 设置当前页面
   void setCurrentPage(String page) {
+    // 群聊分析已下线
+    if (page == 'group_chat_analysis') {
+      page = 'welcome';
+    }
     _currentPage = page;
     notifyListeners();
   }

@@ -244,20 +244,6 @@ class _SidebarState extends State<Sidebar> with SingleTickerProviderStateMixin {
                             ),
                           ),
                           _SidebarButton(
-                            icon: Icons.groups_outlined,
-                            label: '群聊分析',
-                            showLabel: _showContent,
-                            isSelected:
-                                appState.currentPage == 'group_chat_analysis',
-                            onTap: () => unawaited(
-                              _handleNavigation(
-                                context,
-                                appState,
-                                'group_chat_analysis',
-                              ),
-                            ),
-                          ),
-                          _SidebarButton(
                             icon: Icons.file_download_outlined,
                             label: '导出记录',
                             showLabel: _showContent,

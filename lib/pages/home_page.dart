@@ -14,10 +14,9 @@ import 'welcome_page.dart';
 import 'data_management_page.dart';
 import 'analytics_page.dart';
 import 'chat_export_page.dart';
-import 'group_chat_analysis_page.dart';
+import 'group_monitor_page.dart';
 import 'chat_timeline_page.dart';
 import 'leads_page.dart';
-import 'group_monitor_page.dart';
 import '../widgets/decrypt_required_gate.dart';
 
 /// 应用主页面，包含侧边栏和内容区域
@@ -163,10 +162,8 @@ class _HomePageState extends State<HomePage> {
                                 message:
                                     '聊天浏览依赖本地微信数据库。请先在「数据管理」完成解密或连接实时数据库。',
                               );
-                      } else if (appState.currentPage ==
-                          'group_chat_analysis') {
-                        currentPage = const GroupChatAnalysisPage();
                       } else {
+                        // 已下线的「群聊分析」等旧路由回落到欢迎页
                         currentPage = const WelcomePage();
                       }
 
