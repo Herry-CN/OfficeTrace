@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -115,7 +117,11 @@ void main() {
 
   test('skips unchanged groups and only AI-processes new ones', () async {
     final ai = _FakeAi();
-    final store = LeadStore(filePathOverride: 'unused-cap-skip.json');
+    final temp = await Directory.systemTemp.createTemp('cap_skip_');
+    addTearDown(() async {
+      if (await temp.exists()) await temp.delete(recursive: true);
+    });
+    final store = LeadStore(filePathOverride: '${temp.path}/leads.json');
     final capture = LeadCaptureService(aiClient: ai, store: store);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
@@ -150,7 +156,11 @@ void main() {
 
   test('forceAll ignores watermarks', () async {
     final ai = _FakeAi();
-    final store = LeadStore(filePathOverride: 'unused-cap-force.json');
+    final temp = await Directory.systemTemp.createTemp('cap_force_');
+    addTearDown(() async {
+      if (await temp.exists()) await temp.delete(recursive: true);
+    });
+    final store = LeadStore(filePathOverride: '${temp.path}/leads.json');
     final capture = LeadCaptureService(aiClient: ai, store: store);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
