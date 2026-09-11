@@ -9,7 +9,17 @@ import '../services/lead/lead_store.dart';
 ///
 /// 不依赖数据库连接；列表每隔几秒自动刷新以显示新抓取的商机。
 class LeadsPage extends StatefulWidget {
-  const LeadsPage({super.key});
+  const LeadsPage({
+    super.key,
+    this.store,
+    this.autoRefresh = true,
+  });
+
+  /// 测试可注入；默认写入应用文档目录下的 leads.json。
+  final LeadStore? store;
+
+  /// 是否开启数秒一次的自动刷新（测试中可关闭以免挂起）。
+  final bool autoRefresh;
 
   @override
   State<LeadsPage> createState() => _LeadsPageState();
@@ -18,7 +28,7 @@ class LeadsPage extends StatefulWidget {
 class _LeadsPageState extends State<LeadsPage> {
   static const _autoRefreshInterval = Duration(seconds: 5);
 
-  final _store = LeadStore();
+  late final LeadStore _store = widget.store ?? LeadStore();
 
   List<Lead> _leads = [];
   String _categoryFilter = 'all';
@@ -51,6 +61,7 @@ class _LeadsPageState extends State<LeadsPage> {
       if (mounted) setState(() => _loading = false);
     }
     if (!mounted) return;
+    if (!widget.autoRefresh) return;
     _refreshTimer?.cancel();
     _refreshTimer = Timer.periodic(_autoRefreshInterval, (_) {
       unawaited(_refreshLeads(silent: true));
