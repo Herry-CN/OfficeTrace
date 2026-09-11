@@ -5,6 +5,20 @@ import 'package:http/http.dart' as http;
 import '../../models/lead.dart';
 import '../config_service.dart';
 
+/// AI 服务不可用（LM Studio / Ollama / OpenAI 均未就绪）。
+class AiNotConfiguredException implements Exception {
+  AiNotConfiguredException([
+    this.message =
+        'AI 未就绪：请先启动 LM Studio（加载模型，默认 http://localhost:1234）或 Ollama，'
+            '也可在「设置 → 商机 AI 配置」填写 OpenAI 兼容地址并测试连接。',
+  ]);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Ollama / OpenAI 兼容客户端（含 LM Studio）：商机分类与结构化提取
 class AiClientService {
   AiClientService({ConfigService? configService, http.Client? httpClient})
@@ -277,9 +291,9 @@ class AiClientService {
 
   Future<String> chat(String message, {List<Map<String, String>> context = const []}) async {
     if (!isReady) {
-      await autoDetectProvider();
+      await loadFromConfig();
       if (!isReady) {
-        throw Exception('AI服务未配置。请先启动 LM Studio / Ollama，或配置 OpenAI。');
+        throw AiNotConfiguredException();
       }
     }
     if (provider == 'ollama') {

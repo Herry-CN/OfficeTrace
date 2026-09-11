@@ -60,6 +60,9 @@ class LeadCaptureService {
     double? confidenceThreshold,
   }) async {
     await aiClient.loadFromConfig();
+    if (!aiClient.isReady) {
+      throw AiNotConfiguredException();
+    }
     final threshold =
         confidenceThreshold ?? await _config.getConfidenceThreshold();
     final pipeline = LeadPipelineService(aiClient: aiClient, store: store);
@@ -96,6 +99,9 @@ class LeadCaptureService {
       );
     }
     await aiClient.loadFromConfig();
+    if (!aiClient.isReady) {
+      throw AiNotConfiguredException();
+    }
     final hours = analysisHours ?? await _config.getAiAnalysisHours();
     final threshold =
         confidenceThreshold ?? await _config.getConfidenceThreshold();

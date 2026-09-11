@@ -553,9 +553,15 @@ class GroupMonitorController extends ChangeNotifier {
         );
       }
     } catch (e) {
-      _phase = SyncPhase.error;
-      _status = '抓取失败: $e';
-      pushEvent('${_ts()} · 抓取失败: $e');
+      if (e is AiNotConfiguredException) {
+        _phase = SyncPhase.error;
+        _status = e.message;
+        pushEvent('${_ts()} · ${e.message}');
+      } else {
+        _phase = SyncPhase.error;
+        _status = '抓取失败: $e';
+        pushEvent('${_ts()} · 抓取失败: $e');
+      }
     } finally {
       _capturing = false;
       _cancelCapture = false;
@@ -632,8 +638,13 @@ class GroupMonitorController extends ChangeNotifier {
         );
       }
     } catch (e) {
-      _status = '立即抓取失败: $e';
-      pushEvent('立即抓取失败: $e');
+      if (e is AiNotConfiguredException) {
+        _status = e.message;
+        pushEvent('${_ts()} · ${e.message}');
+      } else {
+        _status = '立即抓取失败: $e';
+        pushEvent('立即抓取失败: $e');
+      }
     } finally {
       _capturing = false;
       _cancelCapture = false;
