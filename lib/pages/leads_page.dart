@@ -1,12 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 import '../models/lead.dart';
-import '../providers/app_state.dart';
 import '../services/lead/lead_store.dart';
-import '../widgets/decrypt_required_gate.dart';
 
 /// 商机中心：列表、筛选、跟进（抓取在「群监控」）
+///
+/// 不依赖数据库连接；列表每隔几秒自动刷新以显示新抓取的商机。
 class LeadsPage extends StatefulWidget {
   const LeadsPage({super.key});
 
@@ -15,6 +16,8 @@ class LeadsPage extends StatefulWidget {
 }
 
 class _LeadsPageState extends State<LeadsPage> {
+  static const _autoRefreshInterval = Duration(seconds: 5);
+
   final _store = LeadStore();
 
   List<Lead> _leads = [];
@@ -22,11 +25,19 @@ class _LeadsPageState extends State<LeadsPage> {
   String _statusFilter = 'pending'; // pending | completed | all
   bool _loading = true;
   String? _statusMessage;
+  Timer? _refreshTimer;
+  bool _refreshing = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _bootstrap() async {
@@ -39,12 +50,30 @@ class _LeadsPageState extends State<LeadsPage> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+    if (!mounted) return;
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(_autoRefreshInterval, (_) {
+      unawaited(_refreshLeads(silent: true));
+    });
   }
 
-  Future<void> _refreshLeads() async {
-    final all = await _store.getAll();
-    if (!mounted) return;
-    setState(() => _leads = all);
+  Future<void> _refreshLeads({bool silent = false}) async {
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      final all = await _store.getAll();
+      if (!mounted) return;
+      setState(() {
+        _leads = all;
+        if (!silent) _statusMessage = null;
+      });
+    } catch (e) {
+      if (mounted && !silent) {
+        setState(() => _statusMessage = '刷新失败: $e');
+      }
+    } finally {
+      _refreshing = false;
+    }
   }
 
   List<Lead> get _filtered {
@@ -96,11 +125,6 @@ class _LeadsPageState extends State<LeadsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final appState = context.watch<AppState>();
-    if (!appState.databaseService.isConnected) {
-      return const DecryptRequiredGate();
-    }
-
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -124,7 +148,7 @@ class _LeadsPageState extends State<LeadsPage> {
               const Spacer(),
               IconButton(
                 tooltip: '刷新',
-                onPressed: _refreshLeads,
+                onPressed: () => _refreshLeads(),
                 icon: const Icon(Icons.refresh),
               ),
               if (_statusMessage != null)
@@ -139,7 +163,7 @@ class _LeadsPageState extends State<LeadsPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            '请在「群监控」选择群并抓取；此处查看与跟进商机。',
+            '请在「群监控」选择群并抓取；此处查看与跟进商机（约每 5 秒自动刷新）。',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
             ),
