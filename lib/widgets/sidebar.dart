@@ -235,15 +235,6 @@ class _SidebarState extends State<Sidebar> with SingleTickerProviderStateMixin {
                             ),
                           ),
                           _SidebarButton(
-                            icon: Icons.analytics_outlined,
-                            label: '数据分析',
-                            showLabel: _showContent,
-                            isSelected: appState.currentPage == 'analytics',
-                            onTap: () => unawaited(
-                              _handleNavigation(context, appState, 'analytics'),
-                            ),
-                          ),
-                          _SidebarButton(
                             icon: Icons.file_download_outlined,
                             label: '导出记录',
                             showLabel: _showContent,

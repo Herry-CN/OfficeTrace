@@ -12,7 +12,6 @@ import 'settings_page.dart';
 import 'chat_page.dart';
 import 'welcome_page.dart';
 import 'data_management_page.dart';
-import 'analytics_page.dart';
 import 'chat_export_page.dart';
 import 'group_monitor_page.dart';
 import 'chat_timeline_page.dart';
@@ -144,10 +143,6 @@ class _HomePageState extends State<HomePage> {
                         currentPage = const LeadsPage();
                       } else if (appState.currentPage == 'group_monitor') {
                         currentPage = const GroupMonitorPage();
-                      } else if (appState.currentPage == 'analytics') {
-                        currentPage = AnalyticsPage(
-                          databaseService: appState.databaseService,
-                        );
                       } else if (appState.currentPage == 'timeline') {
                         currentPage = ChatTimelinePage(
                           databaseService: appState.databaseService,
@@ -163,7 +158,7 @@ class _HomePageState extends State<HomePage> {
                                     '聊天浏览依赖本地微信数据库。请先在「数据管理」完成解密或连接实时数据库。',
                               );
                       } else {
-                        // 已下线的「群聊分析」等旧路由回落到欢迎页
+                        // 已下线的「群聊分析」「数据分析」等旧路由回落到欢迎页
                         currentPage = const WelcomePage();
                       }
 
