@@ -10,6 +10,7 @@ import 'ai_client_service.dart';
 import 'auto_sync_pipeline_logic.dart';
 import 'lead_capture_service.dart';
 import 'lead_store.dart';
+import 'monitor_event_log.dart';
 import 'monitor_group_selection.dart';
 
 /// 全局群监控 + 自动同步管线：切页不销毁。
@@ -25,11 +26,13 @@ class GroupMonitorController extends ChangeNotifier {
     LeadCaptureService? captureService,
     IncrementalDecryptRunner? decryptService,
     Future<void> Function()? reconnectDatabase,
+    MonitorEventLog? eventLog,
   })  : config = configService ?? ConfigService(),
         _ai = aiClient ?? AiClientService(),
         _store = store ?? LeadStore(),
         _decrypt = decryptService ?? IncrementalDecryptService(),
-        _reconnectDatabase = reconnectDatabase {
+        _reconnectDatabase = reconnectDatabase,
+        _eventLog = eventLog {
     _capture = captureService ??
         LeadCaptureService(
           aiClient: _ai,
@@ -44,6 +47,7 @@ class GroupMonitorController extends ChangeNotifier {
   final LeadStore _store;
   final IncrementalDecryptRunner _decrypt;
   final Future<void> Function()? _reconnectDatabase;
+  final MonitorEventLog? _eventLog;
   late final LeadCaptureService _capture;
 
   List<ChatSession> _groups = [];
@@ -119,6 +123,9 @@ class GroupMonitorController extends ChangeNotifier {
     _loadingGroups = true;
     notifyListeners();
     try {
+      if (_events.isEmpty && _eventLog != null) {
+        _events.addAll(await _eventLog!.load());
+      }
       _cooldownSeconds = await config.getMonitorIntervalSeconds();
       _analysisHours = await config.getAiAnalysisHours();
       _confidenceThreshold = await config.getConfidenceThreshold();
@@ -318,8 +325,12 @@ class GroupMonitorController extends ChangeNotifier {
 
   void pushEvent(String text) {
     _events.insert(0, text);
-    if (_events.length > 200) {
-      _events.removeRange(200, _events.length);
+    if (_events.length > MonitorEventLog.maxEvents) {
+      _events.removeRange(MonitorEventLog.maxEvents, _events.length);
+    }
+    final log = _eventLog;
+    if (log != null) {
+      unawaited(log.save(_events));
     }
     notifyListeners();
   }

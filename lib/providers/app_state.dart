@@ -11,6 +11,7 @@ import '../services/logger_service.dart';
 import '../services/voice_message_service.dart';
 import '../services/bulk_worker_pool.dart';
 import '../services/lead/group_monitor_controller.dart';
+import '../services/lead/monitor_event_log.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -46,6 +47,7 @@ class AppState extends ChangeNotifier {
   late final GroupMonitorController groupMonitor = GroupMonitorController(
     databaseService: databaseService,
     configService: configService,
+    eventLog: MonitorEventLog(),
     reconnectDatabase: () => reconnectDatabase(
       retryCount: 5,
       retryDelay: 1500,

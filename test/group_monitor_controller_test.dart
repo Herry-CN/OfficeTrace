@@ -12,6 +12,7 @@ import 'package:leadtrace/services/lead/ai_client_service.dart';
 import 'package:leadtrace/services/lead/group_monitor_controller.dart';
 import 'package:leadtrace/services/lead/lead_capture_service.dart';
 import 'package:leadtrace/services/lead/lead_store.dart';
+import 'package:leadtrace/services/lead/monitor_event_log.dart';
 
 class _NoopDecrypt implements IncrementalDecryptRunner {
   @override
@@ -220,6 +221,71 @@ void main() {
     expect(c.capturing, isFalse);
     expect(c.captureDone, lessThan(4));
     expect(c.status, contains('取消'));
+  });
+
+  test('event log survives a new controller', () async {
+    final temp = await Directory.systemTemp.createTemp('gm_events_');
+    addTearDown(() async {
+      if (await temp.exists()) await temp.delete(recursive: true);
+    });
+    final path = '${temp.path}${Platform.pathSeparator}monitor_events.json';
+    final log = MonitorEventLog(filePathOverride: path);
+    final first = GroupMonitorController(
+      databaseService: DatabaseService(),
+      decryptService: _NoopDecrypt(),
+      eventLog: log,
+    );
+    first.pushEvent('旧会话 · 增量解密完成');
+    first.pushEvent('旧会话 · 已开启自动同步循环');
+    await log.flush();
+
+    final second = GroupMonitorController(
+      databaseService: DatabaseService(),
+      decryptService: _NoopDecrypt(),
+      eventLog: MonitorEventLog(filePathOverride: path),
+    );
+    await second.ensureBootstrapped();
+    expect(second.events, [
+      '旧会话 · 已开启自动同步循环',
+      '旧会话 · 增量解密完成',
+    ]);
+  });
+
+  test('event log keeps the newest 200 lines', () async {
+    final temp = await Directory.systemTemp.createTemp('gm_events_cap_');
+    addTearDown(() async {
+      if (await temp.exists()) await temp.delete(recursive: true);
+    });
+    final path = '${temp.path}${Platform.pathSeparator}monitor_events.json';
+    final log = MonitorEventLog(filePathOverride: path);
+    final c = GroupMonitorController(
+      databaseService: DatabaseService(),
+      decryptService: _NoopDecrypt(),
+      eventLog: log,
+    );
+    for (var i = 0; i < 205; i++) {
+      c.pushEvent('event-$i');
+    }
+    await log.flush();
+    expect(c.events, hasLength(200));
+    expect(c.events.first, 'event-204');
+    expect(c.events.last, 'event-5');
+
+    final restored = MonitorEventLog(filePathOverride: path);
+    final loaded = await restored.load();
+    expect(loaded, hasLength(200));
+    expect(loaded.first, 'event-204');
+  });
+
+  test('corrupt event log file loads as empty', () async {
+    final temp = await Directory.systemTemp.createTemp('gm_events_bad_');
+    addTearDown(() async {
+      if (await temp.exists()) await temp.delete(recursive: true);
+    });
+    final path = '${temp.path}${Platform.pathSeparator}monitor_events.json';
+    await File(path).writeAsString('{not-json');
+    final loaded = await MonitorEventLog(filePathOverride: path).load();
+    expect(loaded, isEmpty);
   });
 
   test('captureGroups shouldCancel stops early', () async {
