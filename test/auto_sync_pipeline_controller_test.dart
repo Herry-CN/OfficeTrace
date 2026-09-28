@@ -34,6 +34,36 @@ class _ScriptedDecrypt implements IncrementalDecryptRunner {
   }
 }
 
+class _ThrowingDecrypt implements IncrementalDecryptRunner {
+  @override
+  Future<IncrementalDecryptResult> runIncrementalUpdate({
+    required DatabaseService databaseService,
+    required Future<void> Function() reconnectDatabase,
+    void Function(String status)? onStatus,
+    void Function(int done, int total, String fileName)? onProgress,
+    bool Function()? shouldCancel,
+  }) async {
+    throw Exception('磁盘被占用');
+  }
+}
+
+class _ThrowingCapture extends LeadCaptureService {
+  _ThrowingCapture({required super.aiClient, required super.store});
+
+  @override
+  Future<CaptureGroupsResult> captureGroups({
+    required DatabaseService database,
+    required List<ChatSession> groups,
+    int? analysisHours,
+    double? confidenceThreshold,
+    int messageLimit = 80,
+    bool forceAll = false,
+    void Function(int done, int total, String currentName)? onProgress,
+    bool Function()? shouldCancel,
+  }) async {
+    throw Exception('模型无响应');
+  }
+}
 class _CountingCapture extends LeadCaptureService {
   _CountingCapture({required super.aiClient, required super.store});
 
@@ -181,6 +211,7 @@ void main() {
       c.events.any((e) => e.contains('无库变更')),
       isTrue,
     );
+    expect(c.syncFailureAlert, isNull);
 
     c.setSyncEnabled(false);
   });
@@ -252,5 +283,132 @@ void main() {
     );
 
     c.setSyncEnabled(false);
+  });
+
+  test('decrypt exception queues a failure alert and keeps the log', () async {
+    final ai = _FakeAi();
+    final store = LeadStore(filePathOverride: 'unused-pipeline-fail.json');
+    final c = GroupMonitorController(
+      databaseService: _FakeDb([_g('1@chatroom')]),
+      aiClient: ai,
+      store: store,
+      captureService: _CountingCapture(aiClient: ai, store: store),
+      decryptService: _ThrowingDecrypt(),
+    );
+
+    await c.ensureBootstrapped();
+    c.setSelected({'1@chatroom'});
+    await c.setCooldownSeconds(15);
+
+    c.setSyncEnabled(true);
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    expect(c.syncFailureAlert, contains('增量解密失败'));
+    expect(c.syncFailureAlert, contains('磁盘被占用'));
+    expect(c.events.any((e) => e.contains('增量解密失败')), isTrue);
+    expect(c.pendingSyncFailureCount, 1);
+
+    c.acknowledgeSyncFailure();
+    expect(c.syncFailureAlert, isNull);
+
+    c.setSyncEnabled(false);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+  });
+
+  test('decrypt error message queues a failure alert', () async {
+    final decrypt = _ScriptedDecrypt([
+      const IncrementalDecryptResult(
+        scannedCount: 2,
+        needsUpdateCount: 1,
+        updatedCount: 0,
+        failedCount: 1,
+        errorMessage: '重新连接数据库失败: locked',
+      ),
+    ]);
+    final ai = _FakeAi();
+    final store = LeadStore(filePathOverride: 'unused-pipeline-errmsg.json');
+    final c = GroupMonitorController(
+      databaseService: _FakeDb([_g('1@chatroom')]),
+      aiClient: ai,
+      store: store,
+      captureService: _CountingCapture(aiClient: ai, store: store),
+      decryptService: decrypt,
+    );
+
+    await c.ensureBootstrapped();
+    await c.setCooldownSeconds(15);
+    c.setSyncEnabled(true);
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    expect(c.syncFailureAlert, '重新连接数据库失败: locked');
+    expect(c.events.any((e) => e.contains('重新连接数据库失败')), isTrue);
+
+    c.setSyncEnabled(false);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+  });
+
+  test('partial decrypt failures queue an alert', () async {
+    final decrypt = _ScriptedDecrypt([
+      const IncrementalDecryptResult(
+        scannedCount: 4,
+        needsUpdateCount: 2,
+        updatedCount: 1,
+        failedCount: 1,
+      ),
+    ]);
+    final ai = _FakeAi();
+    final store = LeadStore(filePathOverride: 'unused-pipeline-partial.json');
+    final c = GroupMonitorController(
+      databaseService: _FakeDb([_g('1@chatroom')]),
+      aiClient: ai,
+      store: store,
+      captureService: _CountingCapture(aiClient: ai, store: store),
+      decryptService: decrypt,
+    );
+
+    await c.ensureBootstrapped();
+    c.setSelected({'1@chatroom'});
+    await c.setCooldownSeconds(15);
+    c.setSyncEnabled(true);
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+
+    expect(c.syncFailureAlert, contains('1 个文件失败'));
+    expect(c.events.any((e) => e.contains('失败 1')), isTrue);
+
+    c.setSyncEnabled(false);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+  });
+
+  test('capture exception during auto sync queues a failure alert', () async {
+    final decrypt = _ScriptedDecrypt([
+      const IncrementalDecryptResult(
+        scannedCount: 2,
+        needsUpdateCount: 1,
+        updatedCount: 1,
+        failedCount: 0,
+      ),
+    ]);
+    final ai = _FakeAi();
+    final store = LeadStore(filePathOverride: 'unused-pipeline-capture.json');
+    final c = GroupMonitorController(
+      databaseService: _FakeDb([_g('1@chatroom')]),
+      aiClient: ai,
+      store: store,
+      captureService: _ThrowingCapture(aiClient: ai, store: store),
+      decryptService: decrypt,
+    );
+
+    await c.ensureBootstrapped();
+    c.setSelected({'1@chatroom'});
+    await c.setCooldownSeconds(15);
+    c.setSyncEnabled(true);
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+
+    expect(c.syncFailureAlert, contains('抓取失败'));
+    expect(c.syncFailureAlert, contains('模型无响应'));
+    expect(c.events.any((e) => e.contains('抓取失败')), isTrue);
+
+    c.setSyncEnabled(false);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
   });
 }

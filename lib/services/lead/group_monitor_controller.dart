@@ -75,6 +75,7 @@ class GroupMonitorController extends ChangeNotifier {
   Duration? _estimatedRoundDuration;
   bool _lastSkippedCapture = false;
   int _lastUpdatedFiles = 0;
+  final List<String> _syncFailureAlerts = [];
   Timer? _persistDebounce;
   Timer? _cooldownTick;
 
@@ -102,6 +103,12 @@ class GroupMonitorController extends ChangeNotifier {
   Duration? get estimatedRoundDuration => _estimatedRoundDuration;
   bool get lastSkippedCapture => _lastSkippedCapture;
   int get lastUpdatedFiles => _lastUpdatedFiles;
+
+  /// 自动同步失败时待展示的弹窗文案；为空表示当前没有未确认的失败。
+  String? get syncFailureAlert =>
+      _syncFailureAlerts.isEmpty ? null : _syncFailureAlerts.first;
+
+  int get pendingSyncFailureCount => _syncFailureAlerts.length;
 
   int get cooldownRemainingSeconds {
     final ends = _cooldownEndsAt;
@@ -337,6 +344,29 @@ class GroupMonitorController extends ChangeNotifier {
 
   String _ts() => DateTime.now().toString().substring(0, 19);
 
+  /// 记录失败并排队弹窗。相同文案在用户确认前只保留一条。
+  void _reportSyncFailure(String message) {
+    _phase = SyncPhase.error;
+    _status = message;
+    _enqueueSyncFailure(message, notify: false);
+    pushEvent('${_ts()} · $message');
+  }
+
+  void _enqueueSyncFailure(String message, {bool notify = true}) {
+    final text = message.trim();
+    if (text.isEmpty || text == '已取消') return;
+    if (_syncFailureAlerts.contains(text)) return;
+    _syncFailureAlerts.add(text);
+    if (notify) notifyListeners();
+  }
+
+  /// 用户关闭失败弹窗后调用，展示下一条（若有）。
+  void acknowledgeSyncFailure() {
+    if (_syncFailureAlerts.isEmpty) return;
+    _syncFailureAlerts.removeAt(0);
+    notifyListeners();
+  }
+
   Future<void> _runLoop() async {
     if (_loopActive) return;
     _loopActive = true;
@@ -369,10 +399,7 @@ class GroupMonitorController extends ChangeNotifier {
             shouldCancel: () => !_syncEnabled || _cancelRound,
           );
         } catch (e) {
-          _phase = SyncPhase.error;
-          _status = '增量解密失败: $e';
-          pushEvent('${_ts()} · 增量解密失败: $e');
-          notifyListeners();
+          _reportSyncFailure('增量解密失败: $e');
           if (!_syncEnabled) break;
           await _waitCooldown();
           continue;
@@ -387,10 +414,12 @@ class GroupMonitorController extends ChangeNotifier {
         }
 
         if (!decryptResult.ok && decryptResult.errorMessage != null) {
-          _phase = SyncPhase.error;
-          _status = decryptResult.errorMessage;
-          pushEvent('${_ts()} · ${decryptResult.errorMessage}');
-          notifyListeners();
+          if (decryptResult.errorMessage == '已取消') {
+            pushEvent('${_ts()} · 本轮已取消');
+          } else {
+            _reportSyncFailure(decryptResult.errorMessage!);
+          }
+          if (!_syncEnabled) break;
           await _waitCooldown();
           continue;
         }
@@ -401,6 +430,12 @@ class GroupMonitorController extends ChangeNotifier {
           '需更新 ${decryptResult.needsUpdateCount} · '
           '成功 ${decryptResult.updatedCount} · 失败 ${decryptResult.failedCount}',
         );
+        if (decryptResult.failedCount > 0) {
+          _enqueueSyncFailure(
+            '增量解密有 ${decryptResult.failedCount} 个文件失败'
+            '（成功 ${decryptResult.updatedCount}）',
+          );
+        }
 
         final decision = decideCaptureAfterDecrypt(
           hadDbChanges: decryptResult.hadChanges,
@@ -507,9 +542,7 @@ class GroupMonitorController extends ChangeNotifier {
     final targets = selectedSessions;
     if (targets.isEmpty) return;
     if (!databaseService.isConnected) {
-      _status = '数据库未连接，跳过抓取';
-      pushEvent('${_ts()} · 数据库未连接，跳过抓取');
-      notifyListeners();
+      _reportSyncFailure('数据库未连接，已跳过本轮抓取');
       return;
     }
 
@@ -565,13 +598,9 @@ class GroupMonitorController extends ChangeNotifier {
       }
     } catch (e) {
       if (e is AiNotConfiguredException) {
-        _phase = SyncPhase.error;
-        _status = e.message;
-        pushEvent('${_ts()} · ${e.message}');
+        _reportSyncFailure(e.message);
       } else {
-        _phase = SyncPhase.error;
-        _status = '抓取失败: $e';
-        pushEvent('${_ts()} · 抓取失败: $e');
+        _reportSyncFailure('抓取失败: $e');
       }
     } finally {
       _capturing = false;

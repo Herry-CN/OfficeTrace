@@ -7,6 +7,7 @@ import '../providers/app_state.dart';
 import '../services/config_service.dart';
 import '../widgets/sidebar.dart';
 import '../widgets/decrypt_progress_overlay.dart';
+import '../widgets/sync_failure_prompt.dart';
 import '../widgets/privacy_agreement_dialog.dart';
 import 'settings_page.dart';
 import 'chat_page.dart';
@@ -180,6 +181,7 @@ class _HomePageState extends State<HomePage> {
           ),
           // 显示数据库解密进度的覆盖层
           const DecryptProgressOverlay(),
+          const SyncFailurePrompt(),
         ],
       ),
     );
