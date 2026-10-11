@@ -10,6 +10,7 @@ import '../services/lead/auto_sync_pipeline_logic.dart';
 import '../services/lead/group_monitor_controller.dart';
 import '../services/lead/monitor_group_selection.dart';
 import '../widgets/decrypt_required_gate.dart';
+import '../widgets/persisted_number_field.dart';
 
 /// 群监控 UI：状态由 [GroupMonitorController] 持有，切页不中断。
 class GroupMonitorPage extends StatefulWidget {
@@ -154,15 +155,11 @@ class _GroupMonitorPageState extends State<GroupMonitorPage> {
                           vertical: 8,
                         ),
                       ),
-                      child: TextFormField(
-                        key: ValueKey('cooldown-${c.cooldownSeconds}'),
-                        initialValue: '${c.cooldownSeconds}',
-                        decoration:
-                            const InputDecoration.collapsed(hintText: ''),
-                        keyboardType: TextInputType.number,
-                        onFieldSubmitted: (v) {
-                          c.setCooldownSeconds(int.tryParse(v) ?? 60);
-                        },
+                      child: PersistedNumberField(
+                        value: c.cooldownSeconds,
+                        min: 15,
+                        max: 3600,
+                        onCommit: c.setCooldownSeconds,
                       ),
                     ),
                   ),
@@ -178,15 +175,11 @@ class _GroupMonitorPageState extends State<GroupMonitorPage> {
                           vertical: 8,
                         ),
                       ),
-                      child: TextFormField(
-                        key: ValueKey('hours-${c.analysisHours}'),
-                        initialValue: '${c.analysisHours}',
-                        decoration:
-                            const InputDecoration.collapsed(hintText: ''),
-                        keyboardType: TextInputType.number,
-                        onFieldSubmitted: (v) {
-                          c.setAnalysisHours(int.tryParse(v) ?? 24);
-                        },
+                      child: PersistedNumberField(
+                        value: c.analysisHours,
+                        min: 1,
+                        max: 168,
+                        onCommit: c.setAnalysisHours,
                       ),
                     ),
                   ),
