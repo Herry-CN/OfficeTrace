@@ -55,3 +55,6 @@ go_decrypt/go.sum
 *.so
 go_decrypt/*.h
 /wcdb/
+
+# Local demo extraction artifacts
+/demo_frames/
