@@ -103,6 +103,51 @@ export type UiMessages = {
   mapAlert: string
   waypoint: string
   inProgress: string
+  viewDesktop: string
+  viewMobile: string
+  mobileHome: string
+  mobileAlerts: string
+  mobileLive: string
+  mobileDevices: string
+  mobileMore: string
+  mobileGreeting: string
+  mobileOpsSummary: string
+  mobileOpenLive: string
+  mobileLiveTitle: string
+  mobileSelectFeed: string
+  mobileFeedDrone: string
+  mobileFeedDog: string
+  mobileLiveBadge: string
+  mobileLatency: string
+  mobileSignal: string
+  mobileBattery: string
+  mobileAltitude: string
+  mobileSpeed: string
+  mobileOptical: string
+  mobileThermal: string
+  mobileSplit: string
+  mobileIntercom: string
+  mobileChannel: string
+  mobilePtt: string
+  mobilePttHint: string
+  mobileTalking: string
+  mobileListening: string
+  mobileMute: string
+  mobileUnmute: string
+  mobileSpeakerOn: string
+  mobileChatEmpty: string
+  mobileYou: string
+  mobileDeviceSaid: string
+  mobileSiren: string
+  mobileSpotlight: string
+  mobileSnapshot: string
+  mobileReturn: string
+  mobilePendingAlerts: string
+  mobileActiveUnits: string
+  mobileQuickActions: string
+  mobileActionDeterrence: string
+  mobileActionDispatch: string
+  mobileDemoNote: string
 }
 
 const zh: UiMessages = {
@@ -211,6 +256,51 @@ const zh: UiMessages = {
   mapAlert: '预警点',
   waypoint: '航点',
   inProgress: '进行中',
+  viewDesktop: '指挥舱',
+  viewMobile: '手机端',
+  mobileHome: '首页',
+  mobileAlerts: '告警',
+  mobileLive: '实时',
+  mobileDevices: '设备',
+  mobileMore: '我的',
+  mobileGreeting: '现场安防助手',
+  mobileOpsSummary: '空地一体 · 肯尼亚运营',
+  mobileOpenLive: '进入实时画面',
+  mobileLiveTitle: '实时画面与对讲',
+  mobileSelectFeed: '选择画面源',
+  mobileFeedDrone: '无人机',
+  mobileFeedDog: '机器狗',
+  mobileLiveBadge: 'LIVE',
+  mobileLatency: '时延',
+  mobileSignal: '信号',
+  mobileBattery: '电量',
+  mobileAltitude: '高度',
+  mobileSpeed: '速度',
+  mobileOptical: '光学',
+  mobileThermal: '热成像',
+  mobileSplit: '分屏',
+  mobileIntercom: '对讲频道',
+  mobileChannel: '当前频道',
+  mobilePtt: '按住说话',
+  mobilePttHint: '松开结束 · 经 Starlink 中继回传',
+  mobileTalking: '正在讲话…',
+  mobileListening: '监听中',
+  mobileMute: '静音',
+  mobileUnmute: '取消静音',
+  mobileSpeakerOn: '扬声器开',
+  mobileChatEmpty: '暂无对讲记录，按住下方按钮开始喊话。',
+  mobileYou: '我',
+  mobileDeviceSaid: '设备回传',
+  mobileSiren: '警报',
+  mobileSpotlight: '爆闪',
+  mobileSnapshot: '截图',
+  mobileReturn: '返航/回充',
+  mobilePendingAlerts: '待处理告警',
+  mobileActiveUnits: '在线单元',
+  mobileQuickActions: '快捷动作',
+  mobileActionDeterrence: '声光驱离',
+  mobileActionDispatch: '调派最近单元',
+  mobileDemoNote: '演示画面为模拟实时流，对讲为本地交互模拟。',
 }
 
 const en: UiMessages = {
@@ -319,6 +409,51 @@ const en: UiMessages = {
   mapAlert: 'Alert',
   waypoint: 'WP',
   inProgress: 'In progress',
+  viewDesktop: 'Console',
+  viewMobile: 'Mobile',
+  mobileHome: 'Home',
+  mobileAlerts: 'Alerts',
+  mobileLive: 'Live',
+  mobileDevices: 'Devices',
+  mobileMore: 'Me',
+  mobileGreeting: 'Field Security Assistant',
+  mobileOpsSummary: 'Air-Ground · Kenya Ops',
+  mobileOpenLive: 'Open Live View',
+  mobileLiveTitle: 'Live Video & Intercom',
+  mobileSelectFeed: 'Select Feed',
+  mobileFeedDrone: 'Drone',
+  mobileFeedDog: 'Robot Dog',
+  mobileLiveBadge: 'LIVE',
+  mobileLatency: 'Latency',
+  mobileSignal: 'Signal',
+  mobileBattery: 'Battery',
+  mobileAltitude: 'Altitude',
+  mobileSpeed: 'Speed',
+  mobileOptical: 'Optical',
+  mobileThermal: 'Thermal',
+  mobileSplit: 'Split',
+  mobileIntercom: 'Intercom',
+  mobileChannel: 'Channel',
+  mobilePtt: 'Hold to Talk',
+  mobilePttHint: 'Release to end · via Starlink relay',
+  mobileTalking: 'Talking…',
+  mobileListening: 'Listening',
+  mobileMute: 'Mute',
+  mobileUnmute: 'Unmute',
+  mobileSpeakerOn: 'Speaker On',
+  mobileChatEmpty: 'No intercom yet. Hold the button below to speak.',
+  mobileYou: 'You',
+  mobileDeviceSaid: 'Device',
+  mobileSiren: 'Siren',
+  mobileSpotlight: 'Strobe',
+  mobileSnapshot: 'Snapshot',
+  mobileReturn: 'RTH / Charge',
+  mobilePendingAlerts: 'Pending Alerts',
+  mobileActiveUnits: 'Active Units',
+  mobileQuickActions: 'Quick Actions',
+  mobileActionDeterrence: 'Acoustic Deterrence',
+  mobileActionDispatch: 'Dispatch Nearest Unit',
+  mobileDemoNote: 'Video is a simulated live stream; intercom is local interaction demo.',
 }
 
 export const uiMessages: Record<Locale, UiMessages> = { zh, en }
