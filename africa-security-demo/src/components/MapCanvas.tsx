@@ -1,7 +1,14 @@
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { useEffect } from 'react'
-import type { AlertItem, DeviceItem, Mission } from '../data/mockData'
+import {
+  getDeviceTypeLabel,
+  type AlertItem,
+  type DeviceItem,
+  type Mission,
+} from '../data/mockData'
+import type { Locale } from '../i18n/types'
+import { uiMessages, statusLabel } from '../i18n/ui'
 
 function fitIcon(label: string, color: string) {
   return L.divIcon({
@@ -36,24 +43,25 @@ const deviceColor: Record<DeviceItem['type'], string> = {
   starlink: '#ff8ad8',
 }
 
-const deviceLabel: Record<DeviceItem['type'], string> = {
-  drone: '无人机',
-  robotDog: '机器狗',
-  camera: '相机',
-  dock: '机巢',
-  starlink: '中继',
-}
-
 interface Props {
   mission: Mission
   devices: DeviceItem[]
   alerts: AlertItem[]
   selectedAlertId?: string
   onSelectAlert?: (id: string) => void
+  locale: Locale
 }
 
-export function MapCanvas({ mission, devices, alerts, selectedAlertId, onSelectAlert }: Props) {
+export function MapCanvas({
+  mission,
+  devices,
+  alerts,
+  selectedAlertId,
+  onSelectAlert,
+  locale,
+}: Props) {
   const center = mission.path[0] ?? ([-0.45, 39.65] as [number, number])
+  const ui = uiMessages[locale]
 
   return (
     <div className="map-root" data-testid="map-canvas">
@@ -66,11 +74,11 @@ export function MapCanvas({ mission, devices, alerts, selectedAlertId, onSelectA
         {mission.waypoints.map((wp) => (
           <Marker key={wp.id} position={wp.coords} icon={fitIcon(String(wp.id), '#3ecbff')}>
             <Popup>
-              航点 {wp.id}
+              {ui.waypoint} {wp.id}
               <br />
               {wp.action}
               <br />
-              云台俯仰 {wp.gimbalPitch}°
+              {ui.gimbalPitch} {wp.gimbalPitch}°
             </Popup>
           </Marker>
         ))}
@@ -89,7 +97,7 @@ export function MapCanvas({ mission, devices, alerts, selectedAlertId, onSelectA
             <Popup>
               {d.name}
               <br />
-              {deviceLabel[d.type]} · {d.status}
+              {getDeviceTypeLabel(locale, d.type)} · {statusLabel(ui, d.status)}
               <br />
               {d.location}
             </Popup>
@@ -117,11 +125,26 @@ export function MapCanvas({ mission, devices, alerts, selectedAlertId, onSelectA
         ))}
       </MapContainer>
       <div className="map-legend">
-        <div className="legend-item"><span className="dot path" />航线</div>
-        <div className="legend-item"><span className="dot drone" />无人机</div>
-        <div className="legend-item"><span className="dot dog" />机器狗</div>
-        <div className="legend-item"><span className="dot camera" />感知设备</div>
-        <div className="legend-item"><span className="dot alert" />预警点</div>
+        <div className="legend-item">
+          <span className="dot path" />
+          {ui.mapRoute}
+        </div>
+        <div className="legend-item">
+          <span className="dot drone" />
+          {ui.mapDrone}
+        </div>
+        <div className="legend-item">
+          <span className="dot dog" />
+          {ui.mapDog}
+        </div>
+        <div className="legend-item">
+          <span className="dot camera" />
+          {ui.mapSensor}
+        </div>
+        <div className="legend-item">
+          <span className="dot alert" />
+          {ui.mapAlert}
+        </div>
       </div>
     </div>
   )

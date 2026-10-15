@@ -145,6 +145,27 @@ ul {
   gap: 14px;
 }
 
+.lang-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(10, 40, 70, 0.55);
+}
+
+.lang-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.lang-btn.active {
+  color: #041018;
+  background: linear-gradient(180deg, #7fe2ff, #2aa8d8);
+  font-weight: 700;
+}
+
 .user-chip {
   display: flex;
   align-items: center;
