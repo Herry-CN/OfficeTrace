@@ -25,7 +25,7 @@ export function LiveView() {
   const drone = devices.find((d) => d.id === 'UAV-01')!
   const dog = devices.find((d) => d.id === 'RD-01')!
 
-  const [feed, setFeed] = useState<FeedId>('UAV-01')
+  const [feed, setFeed] = useState<FeedId>('RD-01')
   const [viewMode, setViewMode] = useState<ViewMode>('optical')
   const [talking, setTalking] = useState(false)
   const [muted, setMuted] = useState(false)
@@ -115,9 +115,17 @@ export function LiveView() {
     </button>
   )
 
+  const feedSrc = (kind: 'optical' | 'thermal', source: FeedId) => {
+    if (source === 'RD-01') {
+      return kind === 'thermal' ? '/feeds/robot-dog-thermal.gif' : '/feeds/robot-dog-live.gif'
+    }
+    return kind === 'thermal' ? '/feeds/drone-thermal.gif' : '/feeds/drone-live.gif'
+  }
+
   const renderFeed = (kind: 'optical' | 'thermal', source: FeedId) => {
     const cls = [
       'video-feed',
+      'has-stream',
       kind === 'thermal' ? 'thermal' : '',
       source === 'RD-01' ? 'dog' : '',
     ]
@@ -125,6 +133,12 @@ export function LiveView() {
       .join(' ')
     return (
       <div className={cls} data-testid={`feed-${source}-${kind}`}>
+        <img
+          className="video-stream"
+          src={feedSrc(kind, source)}
+          alt={`${source} ${kind} live feed`}
+          draggable={false}
+        />
         <div className="video-hud">
           <div className="hud-row">
             <span className="live-pill">{ui.mobileLiveBadge}</span>

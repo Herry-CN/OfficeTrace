@@ -121,9 +121,14 @@ describe('Mobile app live + intercom', () => {
     const { root } = renderMobile()
     expect(within(root).getByTestId('mobile-live')).toBeInTheDocument()
     expect(within(root).getByTestId('video-stage')).toBeInTheDocument()
-    expect(within(root).getByRole('button', { name: /无人机|Drone/i })).toBeInTheDocument()
-    fireEvent.click(within(root).getByRole('button', { name: /机器狗|Robot Dog/i }))
-    expect(within(root).getByTestId('feed-RD-01-optical')).toBeInTheDocument()
+    const dogFeed = within(root).getByTestId('feed-RD-01-optical')
+    expect(dogFeed).toBeInTheDocument()
+    expect(dogFeed.querySelector('img.video-stream')).toHaveAttribute(
+      'src',
+      '/feeds/robot-dog-live.gif',
+    )
+    fireEvent.click(within(root).getByRole('button', { name: /无人机|Drone/i }))
+    expect(within(root).getByTestId('feed-UAV-01-optical')).toBeInTheDocument()
   })
 
   it('supports hold-to-talk intercom transcript', () => {

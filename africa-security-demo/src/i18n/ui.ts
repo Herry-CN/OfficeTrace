@@ -300,7 +300,7 @@ const zh: UiMessages = {
   mobileQuickActions: '快捷动作',
   mobileActionDeterrence: '声光驱离',
   mobileActionDispatch: '调派最近单元',
-  mobileDemoNote: '演示画面为模拟实时流，对讲为本地交互模拟。',
+  mobileDemoNote: '机器狗/无人机画面为循环 GIF 模拟实时图传，对讲为本地交互模拟。',
 }
 
 const en: UiMessages = {
@@ -453,7 +453,7 @@ const en: UiMessages = {
   mobileQuickActions: 'Quick Actions',
   mobileActionDeterrence: 'Acoustic Deterrence',
   mobileActionDispatch: 'Dispatch Nearest Unit',
-  mobileDemoNote: 'Video is a simulated live stream; intercom is local interaction demo.',
+  mobileDemoNote: 'Drone/robot-dog views use looping GIFs to simulate live video; intercom is local demo.',
 }
 
 export const uiMessages: Record<Locale, UiMessages> = { zh, en }
