@@ -39,6 +39,9 @@ class ConfigService {
   static const String _keyConfidenceThreshold = 'lead_confidence_threshold';
   static const String _keyAiAnalysisHours = 'ai_analysis_hours';
   static const String _keyLeadPromptCategories = 'lead_prompt_categories';
+  static const String _keyLeadClassificationPrompt =
+      'lead_classification_prompt';
+  static const String _keyLeadExtractionPrompt = 'lead_extraction_prompt';
   static const String _keyMonitorIntervalSeconds = 'monitor_interval_seconds';
   static const String _keyMonitorAutoCapture = 'monitor_auto_capture';
   static const String _keyMonitorSelectedGroups = 'monitor_selected_groups';
@@ -308,6 +311,26 @@ class ConfigService {
     return prefs.getString(_keyLeadPromptCategories) ?? '';
   }
 
+  Future<void> saveLeadClassificationPrompt(String text) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyLeadClassificationPrompt, text);
+  }
+
+  Future<String> getLeadClassificationPrompt() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyLeadClassificationPrompt) ?? '';
+  }
+
+  Future<void> saveLeadExtractionPrompt(String text) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyLeadExtractionPrompt, text);
+  }
+
+  Future<String> getLeadExtractionPrompt() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyLeadExtractionPrompt) ?? '';
+  }
+
   Future<void> saveMonitorIntervalSeconds(int seconds) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyMonitorIntervalSeconds, seconds.clamp(15, 3600));
@@ -391,6 +414,8 @@ class ConfigService {
     await prefs.remove(_keyConfidenceThreshold);
     await prefs.remove(_keyAiAnalysisHours);
     await prefs.remove(_keyLeadPromptCategories);
+    await prefs.remove(_keyLeadClassificationPrompt);
+    await prefs.remove(_keyLeadExtractionPrompt);
     await prefs.remove(_keyMonitorIntervalSeconds);
     await prefs.remove(_keyMonitorAutoCapture);
     await prefs.remove(_keyMonitorSelectedGroups);

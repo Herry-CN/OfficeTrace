@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../../models/lead.dart';
 import '../config_service.dart';
+import 'lead_prompt_pack.dart';
 
 /// AI 服务不可用（LM Studio / Ollama / OpenAI 均未就绪）。
 class AiNotConfiguredException implements Exception {
@@ -34,12 +35,11 @@ class AiClientService {
   String? openaiKey;
   String? model;
   bool isReady = false;
-  String todoPromptCategories = defaultTodoPromptCategories;
+  String todoPromptCategories = LeadPromptPack.defaultCategories;
+  String classificationPrompt = LeadPromptPack.defaultClassificationPrompt;
+  String extractionPrompt = LeadPromptPack.defaultExtractionPrompt;
 
-  static const String defaultTodoPromptCategories = '''- 招聘信息（岗位、要求、联系方式等）
-- 求购信息（需求物品或服务、预算、时间要求等）
-- 寻找资源（寻找合作伙伴、渠道、供应商、场地等）
-- 寻找咨询老师或专家（咨询方向、领域、联系方式等）''';
+  static const String defaultTodoPromptCategories = LeadPromptPack.defaultCategories;
 
   String get _openaiBase {
     var base = openaiUrl.trim();
@@ -59,7 +59,10 @@ class AiClientService {
     openaiKey = await _config.getOpenaiApiKey();
     final preferred = await _config.getAiProvider();
     model = await _config.getAiModel();
-    todoPromptCategories = await _config.getLeadPromptCategories();
+    final prompts = await LeadPromptPack.load(_config);
+    todoPromptCategories = prompts.categories;
+    classificationPrompt = prompts.classificationPrompt;
+    extractionPrompt = prompts.extractionPrompt;
     if (preferred == 'openai') {
       provider = 'openai';
       // 已有模型时不再阻塞等待 LM Studio 枚举
@@ -103,6 +106,8 @@ class AiClientService {
     String? model,
     String? provider,
     String? todoPromptCategories,
+    String? classificationPrompt,
+    String? extractionPrompt,
   }) async {
     if (openaiKey != null) {
       this.openaiKey = openaiKey.trim().isEmpty ? null : openaiKey.trim();
@@ -126,11 +131,19 @@ class AiClientService {
     if (provider != null && provider.isNotEmpty) {
       await _config.saveAiProvider(provider);
     }
-    if (todoPromptCategories != null) {
-      this.todoPromptCategories = todoPromptCategories.trim().isEmpty
-          ? defaultTodoPromptCategories
-          : todoPromptCategories.trim();
-      await _config.saveLeadPromptCategories(this.todoPromptCategories);
+    if (todoPromptCategories != null ||
+        classificationPrompt != null ||
+        extractionPrompt != null) {
+      final pack = LeadPromptPack(
+        categories: todoPromptCategories ?? this.todoPromptCategories,
+        classificationPrompt:
+            classificationPrompt ?? this.classificationPrompt,
+        extractionPrompt: extractionPrompt ?? this.extractionPrompt,
+      ).normalized();
+      this.todoPromptCategories = pack.categories;
+      this.classificationPrompt = pack.classificationPrompt;
+      this.extractionPrompt = pack.extractionPrompt;
+      await pack.persist(_config);
     }
     await autoDetectProvider();
   }
@@ -473,41 +486,37 @@ class AiClientService {
         .toList();
   }
 
-  Future<BusinessClassification> classifyBusinessSegment(
+  String effectiveClassificationPrompt() {
+    final text = classificationPrompt.trim();
+    return text.isEmpty ? LeadPromptPack.defaultClassificationPrompt : text;
+  }
+
+  String effectiveExtractionPrompt() {
+    final text = extractionPrompt.trim();
+    return text.isEmpty ? LeadPromptPack.defaultExtractionPrompt : text;
+  }
+
+  String effectiveCategories() {
+    final text = todoPromptCategories.trim();
+    return text.isEmpty ? LeadPromptPack.defaultCategories : text;
+  }
+
+  /// 拼出分类请求。规则来自可配置提示词，输出格式保持固定。
+  String buildClassificationPrompt(
     String chatContent, {
     String previousSummary = '',
-  }) async {
-    final prompt = '''你是群聊商机筛选器。请判断下面聊天片段是否包含“值得抓取的商机信息”。
+  }) {
+    final rules = effectiveClassificationPrompt();
+    return '''你是群聊商机筛选器。请判断下面聊天片段是否包含“值得抓取的商机信息”。
 
-可选标签只有：
-- recruitment
-- procurement
-- resource
-- expert
-- irrelevant
-
-判定原则：
-- 招聘、诚聘、急招、猎头岗位 -> recruitment
-- 求购、采购、寻供应商、明确预算/采购需求 -> procurement
-- 找渠道、找合作方、找资源、找场地、找服务商 -> resource
-- 找顾问、找老师、找专家、找咨询服务 -> expert
-- 普通聊天、寒暄、会议安排、无明确需求 -> irrelevant
-
-精度优先（减少错抓）：
-- 仅提到「老师/顾问/资源/合作」但无明确需求或求助意图 -> irrelevant
-- 单纯分享文章、表情、图片说明、无实质岗位/采购内容 -> irrelevant
-- 必须有较明确的岗位、采购标的、资源诉求、咨询诉求之一，才判为商机类
-
-召回保底（减少漏抓）：
-- 出现「诚聘/急招/求购/找供应商/找渠道/找顾问」等明确动词短语时，不要判 irrelevant
-- 同时带联系方式或预算/薪资时，优先判为对应商机类
+$rules
 
 如果有上一段摘要，可作为上下文参考：
 ${previousSummary.isEmpty ? '无' : previousSummary}
 
 请只返回 JSON 对象：
 {
-  "label": "recruitment|procurement|resource|expert|irrelevant",
+  "label": "使用上面声明的标签；无关内容用 irrelevant",
   "confidence": 0.0,
   "shouldExtract": true,
   "summary": "一句话概括片段内容"
@@ -515,65 +524,21 @@ ${previousSummary.isEmpty ? '无' : previousSummary}
 
 聊天片段：
 $chatContent''';
-
-    final response = await chat(prompt);
-    final parsed = parseJsonResponse(response);
-    final map = parsed is Map ? parsed : <String, dynamic>{};
-    final raw = map['confidence'];
-    var confidence = raw is num
-        ? raw.toDouble()
-        : double.tryParse(raw?.toString() ?? '') ?? 0.0;
-    if (confidence > 1) confidence = confidence / 100;
-    final label = [
-      'recruitment',
-      'procurement',
-      'resource',
-      'expert',
-      'irrelevant',
-    ].contains(map['label'])
-        ? map['label'].toString()
-        : 'irrelevant';
-
-    return BusinessClassification(
-      label: label,
-      confidence: confidence.clamp(0.0, 1.0),
-      shouldExtract: map['shouldExtract'] == true || label != 'irrelevant',
-      summary: map['summary']?.toString().substring(
-            0,
-            (map['summary']?.toString().length ?? 0).clamp(0, 200),
-          ) ??
-          '',
-    );
   }
 
-  Future<LeadExtractionResult> extractBusinessLeads(
+  String buildExtractionPrompt(
     String chatContent, {
     String previousSummary = '',
     String segmentLabel = '',
-  }) async {
-    final categoriesText =
-        todoPromptCategories.isEmpty ? defaultTodoPromptCategories : todoPromptCategories;
-    final prompt = '''请分析以下聊天内容，提取其中的“商机 / 资源类重要信息”。
+  }) {
+    final categoriesText = effectiveCategories();
+    final rules = effectiveExtractionPrompt();
+    return '''请分析以下聊天内容，提取其中的“商机 / 资源类重要信息”。
 
 这里的目标信息主要包括但不限于：
 $categoriesText
 
-以下情况只要出现，就应优先提取：
-- 明确招聘、诚聘、急招、猎头岗位、招聘顾问、招聘专家
-- 明确求购、采购、寻找供应商、寻找渠道、寻找合作资源
-- 明确寻找顾问、老师、专家、咨询服务
-
-以下内容通常不要提取：
-- 普通寒暄、确认收到、表情回复
-- 一般性见面安排、接送沟通、时间确认
-- 没有明确需求、资源、岗位、联系方式、预算、合作意向的信息
-- 仅口头提到「老师/顾问/资源」但无求助或供需意图
-- 重复复述同一岗位/需求（同一发送者同一时间点只保留一条）
-
-提取要求：
-- title 尽量保留原文关键句，避免过度改写（便于去重）
-- sender / messageTime 必须与原文行一致
-- confidence：证据充分 ≥0.85；略含糊 0.6–0.8；拿不准则不要输出该条
+$rules
 上一段摘要（用于补足上下文）：
 ${previousSummary.isEmpty ? '无' : previousSummary}
 
@@ -594,7 +559,7 @@ ${segmentLabel.isEmpty ? '未提供' : segmentLabel}
       "dueDate": null,
       "sender": "发送者",
       "messageTime": "2026/4/4 18:58:37",
-      "category": "recruitment|procurement|resource|expert",
+      "category": "与分类说明一致的类别",
       "confidence": 0.0
     }
   ]
@@ -604,6 +569,53 @@ ${segmentLabel.isEmpty ? '未提供' : segmentLabel}
 
 聊天内容：
 $chatContent''';
+  }
+
+  Future<BusinessClassification> classifyBusinessSegment(
+    String chatContent, {
+    String previousSummary = '',
+  }) async {
+    final rules = effectiveClassificationPrompt();
+    final prompt = buildClassificationPrompt(
+      chatContent,
+      previousSummary: previousSummary,
+    );
+
+    final response = await chat(prompt);
+    final parsed = parseJsonResponse(response);
+    final map = parsed is Map ? parsed : <String, dynamic>{};
+    final raw = map['confidence'];
+    var confidence = raw is num
+        ? raw.toDouble()
+        : double.tryParse(raw?.toString() ?? '') ?? 0.0;
+    if (confidence > 1) confidence = confidence / 100;
+    final label = LeadPromptPack.normalizeClassificationLabel(
+      map['label']?.toString(),
+      rules,
+    );
+
+    return BusinessClassification(
+      label: label,
+      confidence: confidence.clamp(0.0, 1.0),
+      shouldExtract: map['shouldExtract'] == true || label != 'irrelevant',
+      summary: map['summary']?.toString().substring(
+            0,
+            (map['summary']?.toString().length ?? 0).clamp(0, 200),
+          ) ??
+          '',
+    );
+  }
+
+  Future<LeadExtractionResult> extractBusinessLeads(
+    String chatContent, {
+    String previousSummary = '',
+    String segmentLabel = '',
+  }) async {
+    final prompt = buildExtractionPrompt(
+      chatContent,
+      previousSummary: previousSummary,
+      segmentLabel: segmentLabel,
+    );
 
     final response = await chat(prompt);
     try {

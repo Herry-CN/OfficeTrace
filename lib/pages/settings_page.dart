@@ -18,6 +18,8 @@ import '../services/wx_key_remote_hook_controller.dart';
 import '../services/wx_image_key_service.dart';
 import '../services/wx_key_logger.dart';
 import '../services/lead/ai_client_service.dart';
+import '../services/lead/lead_prompt_pack.dart';
+import '../widgets/lead_prompt_editor.dart';
 import '../widgets/toast_overlay.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:path/path.dart' as p;
@@ -61,6 +63,8 @@ class _SettingsPageState extends State<SettingsPage>
   String _aiProvider = 'auto';
   double _confidenceThreshold = 0.75;
   int _aiAnalysisHours = 24;
+  LeadPromptPack _leadPrompts = LeadPromptPack.defaults;
+  LeadPromptPack _leadPromptDraft = LeadPromptPack.defaults;
   String? _aiStatusText;
   int _lastSaveRequestId = 0;
   String? _dbKeyProgressMessage;
@@ -137,6 +141,7 @@ class _SettingsPageState extends State<SettingsPage>
     final aiModel = await _configService.getAiModel();
     final confidence = await _configService.getConfidenceThreshold();
     final hours = await _configService.getAiAnalysisHours();
+    final prompts = await LeadPromptPack.load(_configService);
 
     if (mounted) {
       setState(() {
@@ -162,6 +167,8 @@ class _SettingsPageState extends State<SettingsPage>
         _aiModelController.text = aiModel ?? '';
         _confidenceThreshold = confidence;
         _aiAnalysisHours = hours;
+        _leadPrompts = prompts;
+        _leadPromptDraft = prompts;
 // 始终显示 wxid 输入框
       });
     }
@@ -813,6 +820,12 @@ class _SettingsPageState extends State<SettingsPage>
       await _configService.saveAiModel(_aiModelController.text.trim());
       await _configService.saveConfidenceThreshold(_confidenceThreshold);
       await _configService.saveAiAnalysisHours(_aiAnalysisHours);
+      await context.read<AppState>().groupMonitor.saveLeadPrompts(
+            _leadPromptDraft,
+          );
+      if (mounted) {
+        setState(() => _leadPrompts = _leadPromptDraft.normalized());
+      }
       if (mounted) {
         setState(() => _aiStatusText = 'AI 配置已保存');
         _showMessage('AI 配置已保存', true);
@@ -2446,6 +2459,23 @@ class _SettingsPageState extends State<SettingsPage>
                     label: '$_aiAnalysisHours 小时',
                     onChanged: (v) =>
                         setState(() => _aiAnalysisHours = v.round()),
+                  ),
+                  const SizedBox(height: 16),
+                  LeadPromptEditor(
+                    pack: _leadPrompts,
+                    onChanged: (pack) => _leadPromptDraft = pack,
+                    onSave: (pack) async {
+                      final saved = await context
+                          .read<AppState>()
+                          .groupMonitor
+                          .saveLeadPrompts(pack);
+                      if (mounted) {
+                        setState(() {
+                          _leadPrompts = saved;
+                          _leadPromptDraft = saved;
+                        });
+                      }
+                    },
                   ),
                   if (_aiStatusText != null) ...[
                     const SizedBox(height: 8),

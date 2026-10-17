@@ -9,6 +9,7 @@ import '../incremental_decrypt_service.dart';
 import 'ai_client_service.dart';
 import 'auto_sync_pipeline_logic.dart';
 import 'lead_capture_service.dart';
+import 'lead_prompt_pack.dart';
 import 'lead_store.dart';
 import 'monitor_event_log.dart';
 import 'monitor_group_selection.dart';
@@ -76,6 +77,7 @@ class GroupMonitorController extends ChangeNotifier {
   bool _lastSkippedCapture = false;
   int _lastUpdatedFiles = 0;
   final List<String> _syncFailureAlerts = [];
+  LeadPromptPack _leadPrompts = LeadPromptPack.defaults;
   Timer? _persistDebounce;
   Timer? _cooldownTick;
 
@@ -109,6 +111,7 @@ class GroupMonitorController extends ChangeNotifier {
       _syncFailureAlerts.isEmpty ? null : _syncFailureAlerts.first;
 
   int get pendingSyncFailureCount => _syncFailureAlerts.length;
+  LeadPromptPack get leadPrompts => _leadPrompts;
 
   int get cooldownRemainingSeconds {
     final ends = _cooldownEndsAt;
@@ -133,6 +136,7 @@ class GroupMonitorController extends ChangeNotifier {
       if (_events.isEmpty && _eventLog != null) {
         _events.addAll(await _eventLog!.load());
       }
+      await reloadLeadPrompts(notify: false);
       _cooldownSeconds = await config.getMonitorIntervalSeconds();
       _analysisHours = await config.getAiAnalysisHours();
       _confidenceThreshold = await config.getConfidenceThreshold();
@@ -274,6 +278,27 @@ class GroupMonitorController extends ChangeNotifier {
 
   /// 兼容旧 API：间隔即冷却秒数。
   Future<void> setIntervalSeconds(int seconds) => setCooldownSeconds(seconds);
+
+  Future<void> reloadLeadPrompts({bool notify = true}) async {
+    _leadPrompts = await LeadPromptPack.load(config);
+    _applyLeadPrompts(_leadPrompts);
+    if (notify) notifyListeners();
+  }
+
+  Future<LeadPromptPack> saveLeadPrompts(LeadPromptPack pack) async {
+    final saved = pack.normalized();
+    await saved.persist(config);
+    _leadPrompts = saved;
+    _applyLeadPrompts(saved);
+    notifyListeners();
+    return saved;
+  }
+
+  void _applyLeadPrompts(LeadPromptPack pack) {
+    _ai.todoPromptCategories = pack.categories;
+    _ai.classificationPrompt = pack.classificationPrompt;
+    _ai.extractionPrompt = pack.extractionPrompt;
+  }
 
   Future<void> setAnalysisHours(int hours) async {
     _analysisHours = hours.clamp(1, 168);

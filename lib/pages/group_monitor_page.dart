@@ -10,6 +10,7 @@ import '../services/lead/auto_sync_pipeline_logic.dart';
 import '../services/lead/group_monitor_controller.dart';
 import '../services/lead/monitor_group_selection.dart';
 import '../widgets/decrypt_required_gate.dart';
+import '../widgets/lead_prompt_editor.dart';
 import '../widgets/persisted_number_field.dart';
 
 /// 群监控 UI：状态由 [GroupMonitorController] 持有，切页不中断。
@@ -257,6 +258,22 @@ class _GroupMonitorPageState extends State<GroupMonitorPage> {
                       ),
                     ),
                 ],
+              ),
+              const SizedBox(height: 16),
+              Card(
+                child: ExpansionTile(
+                  title: const Text('分类与提示词'),
+                  subtitle: const Text('与设置中的商机 AI 配置同步，可导入导出'),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  children: [
+                    LeadPromptEditor(
+                      pack: c.leadPrompts,
+                      onSave: (pack) async {
+                        await c.saveLeadPrompts(pack);
+                      },
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
               Expanded(
