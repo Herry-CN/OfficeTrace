@@ -1,6 +1,7 @@
 import '../../models/lead.dart';
 import 'ai_client_service.dart';
 import 'lead_capture_rules.dart';
+import 'lead_category.dart';
 import 'lead_store.dart';
 
 /// 群聊商机抓取流水线：分段 → 分类 → 提取 → 阈值 → 去重 → 落库
@@ -39,7 +40,14 @@ class LeadPipelineService {
                 ...todo,
                 'sourceMessage': segment.chatContent,
                 'segmentIndex': i,
+                'segmentLabel': segment.primaryLabel,
                 'segmentSummary': segment.segmentSummary,
+                'category': LeadCategory.resolve(
+                  itemCategory: todo['category']?.toString(),
+                  segmentLabel: segment.primaryLabel,
+                  title: todo['title']?.toString(),
+                  description: todo['description']?.toString(),
+                ),
               })
           .toList();
 
@@ -93,9 +101,16 @@ class LeadPipelineService {
                     ...todo,
                     'sourceMessage': segment.chatContent,
                     'segmentIndex': i,
+                    'segmentLabel': classification.label,
                     'segmentSummary': result.summary.isNotEmpty
                         ? result.summary
                         : classification.summary,
+                    'category': LeadCategory.resolve(
+                      itemCategory: todo['category']?.toString(),
+                      segmentLabel: classification.label,
+                      title: todo['title']?.toString(),
+                      description: todo['description']?.toString(),
+                    ),
                   })
               .toList();
           if (result.summary.isNotEmpty) {
@@ -157,10 +172,17 @@ class LeadPipelineService {
             ),
       };
       if (store.isDuplicateOfExisting(withFp, chatName)) {
+        // 已存在则跳过，避免对同一条商机重复归类。
         continue;
       }
       final lead = await store.create({
         ...withFp,
+        'category': LeadCategory.resolve(
+          itemCategory: withFp['category']?.toString(),
+          segmentLabel: withFp['segmentLabel']?.toString(),
+          title: withFp['title']?.toString(),
+          description: withFp['description']?.toString(),
+        ),
         'groupName': chatName,
         'source': 'ai-generated',
         'sourceMessage': withFp['sourceMessage'],
@@ -368,6 +390,7 @@ class LeadPipelineService {
     final merged = <Map<String, dynamic>>[];
     for (final item in items) {
       if (item['title'] == null) continue;
+      final segmentLabel = item['segmentLabel']?.toString();
       final enriched = {
         ...item,
         'fingerprint': item['fingerprint'] ??
@@ -378,6 +401,12 @@ class LeadPipelineService {
               messageTime: item['messageTime']?.toString(),
               messageId: item['messageId']?.toString(),
             ),
+        'category': LeadCategory.resolve(
+          itemCategory: item['category']?.toString(),
+          segmentLabel: segmentLabel,
+          title: item['title']?.toString(),
+          description: item['description']?.toString(),
+        ),
       };
       final currentConfidence = enriched['confidence'] is num
           ? (enriched['confidence'] as num).toDouble()
@@ -392,8 +421,19 @@ class LeadPipelineService {
       final existingConfidence = existing['confidence'] is num
           ? (existing['confidence'] as num).toDouble()
           : 0.8;
+      final chosenCategory = LeadCategory.preferWhenMerging(
+        existing: existing['category']?.toString(),
+        incoming: enriched['category']?.toString(),
+        existingConfidence: existingConfidence,
+        incomingConfidence: currentConfidence,
+        segmentLabel: segmentLabel ?? existing['segmentLabel']?.toString(),
+      );
       if (currentConfidence > existingConfidence) {
-        merged[existingIndex] = Map<String, dynamic>.from(enriched);
+        final next = Map<String, dynamic>.from(enriched);
+        next['category'] = chosenCategory;
+        merged[existingIndex] = next;
+      } else {
+        existing['category'] = chosenCategory;
       }
     }
     return merged;

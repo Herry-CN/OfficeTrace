@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import '../../models/lead.dart';
 import '../app_path_service.dart';
 import 'lead_capture_rules.dart';
+import 'lead_category.dart';
 
 /// 商机持久化：应用文档目录下 LeadTrace/leads.json
 class LeadStore {
@@ -87,7 +88,11 @@ class LeadStore {
       groupName: data['groupName']?.toString(),
       sender: sender,
       messageTime: messageTime,
-      category: data['category']?.toString(),
+      category: LeadCategory.resolve(
+        itemCategory: data['category']?.toString(),
+        title: title,
+        description: description,
+      ),
       confidence: data['confidence'] is num
           ? (data['confidence'] as num).toDouble()
           : double.tryParse(data['confidence']?.toString() ?? ''),

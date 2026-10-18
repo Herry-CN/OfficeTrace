@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/lead.dart';
+import '../services/lead/lead_category.dart';
 import '../services/lead/lead_store.dart';
 
 /// 商机中心：列表、筛选、跟进（抓取在「群监控」）
@@ -87,11 +88,39 @@ class _LeadsPageState extends State<LeadsPage> {
     }
   }
 
+  List<String> get _availableCategories {
+    final found = <String>{
+      ...LeadCategory.defaults,
+      LeadCategory.other,
+    };
+    for (final lead in _leads) {
+      final category = LeadCategory.normalize(lead.category);
+      if (category != null) found.add(category);
+    }
+    final ordered = <String>[
+      ...LeadCategory.defaults.where(found.contains),
+      ...found
+          .where((c) => !LeadCategory.defaults.contains(c) && c != LeadCategory.other)
+          .toList()
+        ..sort(),
+      if (found.contains(LeadCategory.other)) LeadCategory.other,
+    ];
+    return ordered;
+  }
+
+  String get _effectiveCategoryFilter {
+    if (_categoryFilter == 'all') return 'all';
+    return _availableCategories.contains(_categoryFilter)
+        ? _categoryFilter
+        : 'all';
+  }
+
   List<Lead> get _filtered {
+    final categoryFilter = _effectiveCategoryFilter;
     return _leads.where((lead) {
       if (_statusFilter == 'pending' && lead.completed) return false;
       if (_statusFilter == 'completed' && !lead.completed) return false;
-      if (_categoryFilter != 'all' && lead.category != _categoryFilter) {
+      if (categoryFilter != 'all' && lead.category != categoryFilter) {
         return false;
       }
       return true;
@@ -196,13 +225,15 @@ class _LeadsPageState extends State<LeadsPage> {
                     setState(() => _statusFilter = s.first),
               ),
               DropdownButton<String>(
-                value: _categoryFilter,
-                items: const [
-                  DropdownMenuItem(value: 'all', child: Text('全部分类')),
-                  DropdownMenuItem(value: 'recruitment', child: Text('招聘')),
-                  DropdownMenuItem(value: 'procurement', child: Text('求购')),
-                  DropdownMenuItem(value: 'resource', child: Text('资源')),
-                  DropdownMenuItem(value: 'expert', child: Text('专家')),
+                value: _effectiveCategoryFilter,
+                items: [
+                  const DropdownMenuItem(value: 'all', child: Text('全部分类')),
+                  ..._availableCategories.map(
+                    (c) => DropdownMenuItem(
+                      value: c,
+                      child: Text(Lead.categoryLabel(c)),
+                    ),
+                  ),
                 ],
                 onChanged: (v) =>
                     setState(() => _categoryFilter = v ?? 'all'),

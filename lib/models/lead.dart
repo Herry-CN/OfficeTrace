@@ -136,6 +136,10 @@ class Lead {
   }
 
   static String categoryLabel(String? category) {
+    // 具体规则见 LeadCategory.displayLabel；此处保留薄封装避免循环依赖。
+    if (category == null || category.trim().isEmpty || category == 'irrelevant') {
+      return '未分类';
+    }
     switch (category) {
       case 'recruitment':
         return '招聘';
@@ -145,8 +149,10 @@ class Lead {
         return '资源';
       case 'expert':
         return '专家';
+      case 'other':
+        return '其他';
       default:
-        return category ?? '未分类';
+        return category;
     }
   }
 }
