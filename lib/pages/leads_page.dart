@@ -132,23 +132,27 @@ class _LeadsPageState extends State<LeadsPage> {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: Text(lead.title),
+          title: SelectableText(lead.title),
           content: SizedBox(
             width: 480,
             child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(lead.description),
-                  const SizedBox(height: 12),
-                  Text('分类: ${Lead.categoryLabel(lead.category)}'),
-                  Text(
-                    '置信度: ${lead.confidence == null ? '-' : (lead.confidence! * 100).toStringAsFixed(0)}%',
-                  ),
-                  Text('群: ${lead.groupName ?? '-'}'),
-                  Text('发送者: ${lead.sender ?? '-'}'),
-                  Text('时间: ${lead.messageTime ?? '-'}'),
-                ],
+              child: SelectionArea(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SelectableText(lead.description),
+                    const SizedBox(height: 12),
+                    SelectableText(
+                      '分类: ${Lead.categoryLabel(lead.category)}',
+                    ),
+                    SelectableText(
+                      '置信度: ${lead.confidence == null ? '-' : (lead.confidence! * 100).toStringAsFixed(0)}%',
+                    ),
+                    SelectableText('群: ${lead.groupName ?? '-'}'),
+                    SelectableText('发送者: ${lead.sender ?? '-'}'),
+                    SelectableText('时间: ${lead.messageTime ?? '-'}'),
+                  ],
+                ),
               ),
             ),
           ),
