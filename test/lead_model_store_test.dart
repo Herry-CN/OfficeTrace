@@ -64,6 +64,47 @@ void main() {
       expect(all.first.confidence, closeTo(0.88, 0.001));
     });
 
+    test('load remaps dirty Chinese categories to fixed enum', () async {
+      final file = File('${tempDir.path}/leads.json');
+      final now = DateTime.parse('2026-04-04T18:58:37.000').toIso8601String();
+      await file.writeAsString('''
+[
+  {
+    "id": "dirty1",
+    "title": "寻找渠道合作",
+    "description": "华南经销",
+    "priority": "medium",
+    "completed": false,
+    "source": "ai-generated",
+    "category": "寻找渠道",
+    "createdAt": "$now",
+    "updatedAt": "$now"
+  },
+  {
+    "id": "dirty2",
+    "title": "诚聘顾问",
+    "description": "汽车零部件",
+    "priority": "high",
+    "completed": false,
+    "source": "ai-generated",
+    "category": "招聘信息",
+    "createdAt": "$now",
+    "updatedAt": "$now"
+  }
+]
+''');
+      final all = await store.getAll();
+      expect(
+        all.map((e) => e.category).toSet(),
+        {'resource', 'recruitment'},
+      );
+      final disk = await file.readAsString();
+      expect(disk, contains('"category": "resource"'));
+      expect(disk, contains('"category": "recruitment"'));
+      expect(disk, isNot(contains('"category": "寻找渠道"')));
+      expect(disk, isNot(contains('"category": "招聘信息"')));
+    });
+
     test('toggleComplete and delete', () async {
       final lead = await store.create({'title': '找渠道', 'category': 'resource'});
       final toggled = await store.toggleComplete(lead.id);

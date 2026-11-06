@@ -136,23 +136,38 @@ class Lead {
   }
 
   static String categoryLabel(String? category) {
-    // 具体规则见 LeadCategory.displayLabel；此处保留薄封装避免循环依赖。
+    // 与 LeadCategory.labels 保持一致；模型层不依赖 services 包。
     if (category == null || category.trim().isEmpty || category == 'irrelevant') {
       return '未分类';
     }
     switch (category) {
       case 'recruitment':
+      case '招聘':
+      case '招聘信息':
         return '招聘';
       case 'procurement':
+      case '求购':
         return '求购';
       case 'resource':
+      case '资源':
+      case '寻找资源':
+      case '供应':
+      case 'supply':
         return '资源';
       case 'expert':
+      case '专家':
+      case '咨询':
+      case '寻找顾问':
         return '专家';
       case 'other':
+      case '其他':
         return '其他';
       default:
-        return category;
+        // 复合/未知：尽量显示「其他」而非原始脏字符串
+        if (category.contains('|') || category.contains('/')) {
+          return '其他';
+        }
+        return '其他';
     }
   }
 }

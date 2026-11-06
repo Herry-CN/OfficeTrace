@@ -27,6 +27,17 @@ void main() {
       LeadPromptPack.defaultClassificationPrompt,
     );
     expect(pack.extractionPrompt, LeadPromptPack.defaultExtractionPrompt);
+    expect(LeadPromptPack.needsSchemeUpgrade(LeadPromptPack.defaults), isFalse);
+    expect(
+      LeadPromptPack.needsSchemeUpgrade(
+        const LeadPromptPack(
+          categories: '- 招聘\n- 寻找资源',
+          classificationPrompt: '随意分类',
+          extractionPrompt: '随意提取',
+        ),
+      ),
+      isTrue,
+    );
   });
 
   test('prompt export round-trips and rejects invalid files', () {
@@ -62,7 +73,11 @@ void main() {
     );
     expect(
       LeadPromptPack.normalizeClassificationLabel('自定义', '只写中文规则'),
-      '自定义',
+      'irrelevant',
+    );
+    expect(
+      LeadPromptPack.normalizeClassificationLabel('寻找资源', prompt),
+      'resource',
     );
   });
 

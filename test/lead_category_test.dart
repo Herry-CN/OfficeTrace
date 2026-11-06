@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:leadtrace/services/lead/lead_category.dart';
 import 'package:leadtrace/services/lead/lead_pipeline_service.dart';
+import 'package:leadtrace/services/lead/lead_prompt_pack.dart';
 import 'package:leadtrace/services/lead/ai_client_service.dart';
 import 'package:leadtrace/services/lead/lead_store.dart';
 
@@ -32,6 +33,23 @@ void main() {
       expect(
         LeadCategory.resolve(itemCategory: '', title: '随便聊聊'),
         LeadCategory.other,
+      );
+    });
+
+    test('maps Chinese and compound dirty labels to fixed enum', () {
+      expect(LeadCategory.normalize('招聘信息'), 'recruitment');
+      expect(LeadCategory.normalize('寻找资源'), 'resource');
+      expect(LeadCategory.normalize('寻找顾问、老师、专家'), 'expert');
+      expect(LeadCategory.normalize('procurement|expert'), 'procurement');
+      expect(LeadCategory.normalize('resource|expert'), 'resource');
+      expect(LeadCategory.normalize('supply'), 'resource');
+      expect(LeadCategory.normalize('供应'), 'resource');
+      expect(LeadCategory.normalize('政策变化'), 'other');
+      expect(LeadCategory.normalize('商机 / 资源类重要信息'), 'other');
+      expect(LeadCategory.filterValues, hasLength(5));
+      expect(
+        LeadCategory.filterValues,
+        containsAll(['recruitment', 'procurement', 'resource', 'expert', 'other']),
       );
     });
 
@@ -76,6 +94,22 @@ void main() {
           segmentLabel: null,
         ),
         'resource',
+      );
+    });
+  });
+
+  group('LeadPromptPack', () {
+    test('defaults force English category enum', () {
+      expect(LeadPromptPack.defaultCategories, contains('禁止中文类名'));
+      expect(LeadPromptPack.defaultCategories, contains('recruitment：'));
+      expect(LeadPromptPack.defaultExtractionPrompt, contains('禁止把分类写成中文'));
+      expect(
+        LeadPromptPack.normalizeClassificationLabel('寻找资源', ''),
+        'resource',
+      );
+      expect(
+        LeadPromptPack.normalizeClassificationLabel('procurement|expert', ''),
+        'procurement',
       );
     });
   });
@@ -134,6 +168,18 @@ void main() {
       ]);
       expect(merged, hasLength(1));
       expect(merged.single['category'], 'procurement');
+    });
+
+    test('normalizeLeadItems remaps Chinese category to enum', () {
+      final items = AiClientService.normalizeLeadItems([
+        {
+          'title': '找渠道合作',
+          'description': '需要华南经销渠道',
+          'category': '寻找渠道',
+          'confidence': 0.9,
+        },
+      ]);
+      expect(items.single['category'], 'resource');
     });
   });
 }

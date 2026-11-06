@@ -39,6 +39,7 @@ class ConfigService {
   static const String _keyConfidenceThreshold = 'lead_confidence_threshold';
   static const String _keyAiAnalysisHours = 'ai_analysis_hours';
   static const String _keyLeadPromptCategories = 'lead_prompt_categories';
+  static const String _keyLeadPromptSchemeVersion = 'lead_prompt_scheme_version';
   static const String _keyLeadClassificationPrompt =
       'lead_classification_prompt';
   static const String _keyLeadExtractionPrompt = 'lead_extraction_prompt';
@@ -311,6 +312,16 @@ class ConfigService {
     return prefs.getString(_keyLeadPromptCategories) ?? '';
   }
 
+  Future<void> saveLeadPromptSchemeVersion(int version) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_keyLeadPromptSchemeVersion, version);
+  }
+
+  Future<int> getLeadPromptSchemeVersion() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_keyLeadPromptSchemeVersion) ?? 0;
+  }
+
   Future<void> saveLeadClassificationPrompt(String text) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyLeadClassificationPrompt, text);
@@ -416,6 +427,7 @@ class ConfigService {
     await prefs.remove(_keyLeadPromptCategories);
     await prefs.remove(_keyLeadClassificationPrompt);
     await prefs.remove(_keyLeadExtractionPrompt);
+    await prefs.remove(_keyLeadPromptSchemeVersion);
     await prefs.remove(_keyMonitorIntervalSeconds);
     await prefs.remove(_keyMonitorAutoCapture);
     await prefs.remove(_keyMonitorSelectedGroups);

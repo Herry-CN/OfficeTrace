@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../../models/lead.dart';
 import '../config_service.dart';
+import 'lead_category.dart';
 import 'lead_prompt_pack.dart';
 
 /// AI 服务不可用（LM Studio / Ollama / OpenAI 均未就绪）。
@@ -479,7 +480,11 @@ class AiClientService {
             'dueDate': item['dueDate'],
             'sender': item['sender'],
             'messageTime': item['messageTime'],
-            'category': item['category']?.toString(),
+            'category': LeadCategory.resolve(
+              itemCategory: item['category']?.toString(),
+              title: item['title']?.toString(),
+              description: item['description']?.toString(),
+            ),
             'confidence': confidence.clamp(0.0, 1.0),
           };
         })
@@ -559,7 +564,7 @@ ${segmentLabel.isEmpty ? '未提供' : segmentLabel}
       "dueDate": null,
       "sender": "发送者",
       "messageTime": "2026/4/4 18:58:37",
-      "category": "与分类说明一致的类别",
+      "category": "recruitment|procurement|resource|expert|other",
       "confidence": 0.0
     }
   ]

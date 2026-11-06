@@ -111,13 +111,26 @@ class LeadStore {
     final index = _leads.indexWhere((l) => l.id == id);
     if (index < 0) throw Exception('商机不存在');
     final current = _leads[index];
+    final nextTitle = updates.containsKey('title')
+        ? updates['title']?.toString() ?? ''
+        : current.title;
+    final nextDescription = updates.containsKey('description')
+        ? updates['description']?.toString() ?? ''
+        : current.description;
+    final nextCategory = updates.containsKey('category')
+        ? LeadCategory.resolve(
+            itemCategory: updates['category']?.toString(),
+            title: nextTitle,
+            description: nextDescription,
+          )
+        : LeadCategory.resolve(
+            itemCategory: current.category,
+            title: nextTitle,
+            description: nextDescription,
+          );
     final updated = current.copyWith(
-      title: updates.containsKey('title')
-          ? updates['title']?.toString()
-          : current.title,
-      description: updates.containsKey('description')
-          ? updates['description']?.toString()
-          : current.description,
+      title: nextTitle,
+      description: nextDescription,
       priority: updates.containsKey('priority')
           ? updates['priority']?.toString()
           : current.priority,
@@ -127,9 +140,7 @@ class LeadStore {
       completed: updates.containsKey('completed')
           ? updates['completed'] == true
           : current.completed,
-      category: updates.containsKey('category')
-          ? updates['category']?.toString()
-          : current.category,
+      category: nextCategory,
       updatedAt: DateTime.now(),
     );
     _leads[index] = updated;
@@ -206,13 +217,26 @@ class LeadStore {
       final content = await file.readAsString();
       final parsed = jsonDecode(content);
       if (parsed is List) {
+        var dirty = false;
+        final remapped = parsed.whereType<Map>().map((e) {
+          final lead = Lead.fromJson(Map<String, dynamic>.from(e));
+          final canonical = LeadCategory.resolve(
+            itemCategory: lead.category,
+            title: lead.title,
+            description: lead.description,
+          );
+          if (lead.category != canonical) {
+            dirty = true;
+            return lead.copyWith(category: canonical);
+          }
+          return lead;
+        }).toList();
         _leads
           ..clear()
-          ..addAll(
-            parsed
-                .whereType<Map>()
-                .map((e) => Lead.fromJson(Map<String, dynamic>.from(e))),
-          );
+          ..addAll(remapped);
+        if (dirty) {
+          await saveToDisk();
+        }
       } else {
         _leads.clear();
       }

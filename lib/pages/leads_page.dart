@@ -88,25 +88,8 @@ class _LeadsPageState extends State<LeadsPage> {
     }
   }
 
-  List<String> get _availableCategories {
-    final found = <String>{
-      ...LeadCategory.defaults,
-      LeadCategory.other,
-    };
-    for (final lead in _leads) {
-      final category = LeadCategory.normalize(lead.category);
-      if (category != null) found.add(category);
-    }
-    final ordered = <String>[
-      ...LeadCategory.defaults.where(found.contains),
-      ...found
-          .where((c) => !LeadCategory.defaults.contains(c) && c != LeadCategory.other)
-          .toList()
-        ..sort(),
-      if (found.contains(LeadCategory.other)) LeadCategory.other,
-    ];
-    return ordered;
-  }
+  /// 下拉只展示固定分类，避免历史脏数据/模型自造类名污染筛选。
+  List<String> get _availableCategories => LeadCategory.filterValues;
 
   String get _effectiveCategoryFilter {
     if (_categoryFilter == 'all') return 'all';

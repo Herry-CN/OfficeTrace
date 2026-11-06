@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../config_service.dart';
+import 'lead_category.dart';
 
 /// 商机抓取用的分类说明与提示词。设置页和群监控共用这一份。
 class LeadPromptPack {
@@ -12,10 +13,13 @@ class LeadPromptPack {
 
   static const int exportVersion = 1;
 
-  static const String defaultCategories = '''- 招聘信息（岗位、要求、联系方式等）
-- 求购信息（需求物品或服务、预算、时间要求等）
-- 寻找资源（寻找合作伙伴、渠道、供应商、场地等）
-- 寻找咨询老师或专家（咨询方向、领域、联系方式等）''';
+  /// 分类说明：强制英文枚举，禁止模型自造中文类名。
+  static const String defaultCategories = '''category 字段必须且只能取下列英文值之一（禁止中文类名、禁止用 | / 、拼接多个类）：
+- recruitment：招聘、诚聘、急招、猎头岗位、任职要求
+- procurement：求购、采购、寻购、询价、明确预算的采购需求
+- resource：找资源、找渠道、找合作伙伴、找场地、找服务商、供应对接
+- expert：找顾问、找老师、找专家、咨询服务
+- other：能提取为商机但不属于以上四类时使用''';
 
   static const String defaultClassificationPrompt = '''可选标签只有：
 - recruitment
@@ -38,10 +42,13 @@ class LeadPromptPack {
 
 召回保底（减少漏抓）：
 - 出现「诚聘/急招/求购/找供应商/找渠道/找顾问」等明确动词短语时，不要判 irrelevant
-- 同时带联系方式或预算/薪资时，优先判为对应商机类''';
+- 同时带联系方式或预算/薪资时，优先判为对应商机类
+
+硬性约束：
+- label 只能是上述 5 个英文词之一，禁止输出中文，禁止拼接多个标签''';
 
   static const String defaultExtractionPrompt = '''以下情况只要出现，就应优先提取：
-- 明确招聘、诚聘、急招、猎头岗位、招聘顾问、招聘专家
+- 明确招聘、诚聘、急招、猎头岗位
 - 明确求购、采购、寻找供应商、寻找渠道、寻找合作资源
 - 明确寻找顾问、老师、专家、咨询服务
 
@@ -55,6 +62,8 @@ class LeadPromptPack {
 提取要求：
 - title 尽量保留原文关键句，避免过度改写（便于去重）
 - sender / messageTime 必须与原文行一致
+- category 只能是 recruitment / procurement / resource / expert / other 之一
+- 禁止把分类写成中文（如「招聘」「寻找资源」），禁止写成复合值（如 procurement|expert）
 - confidence：证据充分 ≥0.85；略含糊 0.6–0.8；拿不准则不要输出该条''';
 
   static const LeadPromptPack defaults = LeadPromptPack(
@@ -82,7 +91,15 @@ class LeadPromptPack {
     return trimmed.isEmpty ? fallback : trimmed;
   }
 
+  /// 提示词方案版本：升级时一次性覆盖旧自由类名方案。
+  static const int schemeVersion = 2;
+
   static Future<LeadPromptPack> load(ConfigService config) async {
+    final version = await config.getLeadPromptSchemeVersion();
+    if (version < schemeVersion) {
+      await defaults.persist(config);
+      return defaults;
+    }
     return LeadPromptPack(
       categories: await config.getLeadPromptCategories(),
       classificationPrompt: await config.getLeadClassificationPrompt(),
@@ -90,11 +107,26 @@ class LeadPromptPack {
     ).normalized();
   }
 
+  /// 是否仍缺少英文枚举硬约束（用于识别旧文案；迁移靠 [schemeVersion]）。
+  static bool needsSchemeUpgrade(LeadPromptPack pack) {
+    final categories = pack.categories;
+    final classification = pack.classificationPrompt;
+    final extraction = pack.extractionPrompt;
+    final hasCategoryConstraint = categories.contains('禁止中文类名');
+    final hasClassifyConstraint = classification.contains('禁止输出中文') ||
+        classification.contains('label 只能是上述');
+    final hasExtractConstraint = extraction.contains('禁止把分类写成中文');
+    return !hasCategoryConstraint ||
+        !hasClassifyConstraint ||
+        !hasExtractConstraint;
+  }
+
   Future<void> persist(ConfigService config) async {
     final pack = normalized();
     await config.saveLeadPromptCategories(pack.categories);
     await config.saveLeadClassificationPrompt(pack.classificationPrompt);
     await config.saveLeadExtractionPrompt(pack.extractionPrompt);
+    await config.saveLeadPromptSchemeVersion(schemeVersion);
   }
 
   String encodeExport() {
@@ -131,24 +163,31 @@ class LeadPromptPack {
   static Set<String> declaredLabels(String prompt) {
     final labels = <String>{'irrelevant'};
     final arrow = RegExp(r'->\s*([A-Za-z][\w-]{0,63})');
-    final bullet = RegExp(r'^\s*-\s*([A-Za-z][\w-]{0,63})\s*$', multiLine: true);
+    final bullet =
+        RegExp(r'^\s*-\s*([A-Za-z][\w-]{0,63})\s*$', multiLine: true);
     for (final match in arrow.allMatches(prompt)) {
       labels.add(match.group(1)!);
     }
     for (final match in bullet.allMatches(prompt)) {
       labels.add(match.group(1)!);
     }
+    // 始终允许固定业务枚举，避免用户改提示词后丢标签
+    labels.addAll(LeadCategory.defaults);
     return labels;
   }
 
-  /// 提示词声明了标签时，只接受这些标签；否则保留模型返回的自定义类别。
+  /// 提示词声明了标签时，只接受这些标签；否则映射到固定枚举。
   static String normalizeClassificationLabel(String? raw, String prompt) {
+    final mapped = LeadCategory.mapAlias(raw);
+    if (mapped == LeadCategory.irrelevant) return 'irrelevant';
+    if (mapped != null && LeadCategory.defaults.contains(mapped)) {
+      return mapped;
+    }
     final label = (raw ?? '').trim();
     if (label.isEmpty) return 'irrelevant';
-    final clipped = label.length > 64 ? label.substring(0, 64) : label;
     final allowed = declaredLabels(prompt);
-    if (allowed.length <= 1) return clipped;
-    return allowed.contains(clipped) ? clipped : 'irrelevant';
+    if (allowed.contains(label)) return label;
+    return 'irrelevant';
   }
 
   @override
